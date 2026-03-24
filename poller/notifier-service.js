@@ -1,0 +1,730 @@
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DeliveryDedupeGate } from "./delivery-dedupe.js";
+import {
+  buildDeliveryKey,
+  buildSemanticAlertKey,
+  buildEvolutionHeaders,
+  chooseEvolutionInstance,
+  detectEventType,
+  formatMessage,
+  getConnectionState,
+  getInstances,
+  getMediaAssetMimeType,
+  hashDeliveryKey,
+  normalizeChatTarget,
+  resolveEventType,
+  resolveMediaAssetFilename,
+  resolveMessageMediaBaseName,
+  shouldFallbackToText,
+} from "./lib.js";
+import { parseNotifierTarget } from "./notifier-target.js";
+import {
+  formatTelegramError,
+  isTelegramTransientError,
+  retryTelegramOperation,
+} from "./telegram.js";
+import { createLogger } from "./log.js";
+import { appendRecentSentEntry, loadRecentSentEntries } from "./ops-timeline-store.js";
+
+const DEFAULT_EVOLUTION_URL = "http://evolution-api:8080";
+const DEFAULT_EVOLUTION_TIMEOUT_MS = 10_000;
+const DEFAULT_TELEGRAM_TIMEOUT_MS = 15_000;
+const MAX_RECENT_SENT = 100;
+const appDir = dirname(fileURLToPath(import.meta.url));
+const assetsDir = join(appDir, "assets");
+const assetFiles = readdirSync(assetsDir);
+const logger = createLogger("notifier-service");
+
+export const notifierStatePath = join(appDir, "data", "notifier-state.json");
+export const telegramNotifierStatePath = join(appDir, "data", "telegram-notifier-state.json");
+export const recentSentStorePath = join(appDir, "data", "recent-sent.json");
+export const notifierDeliveryStorePath = join(appDir, "data", "notifier-deliveries.json");
+
+function toIsoString(value = Date.now()) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function persistJson(filePath, value) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
+}
+
+function loadJson(filePath, fallback, label) {
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (err) {
+    if (err?.code !== "ENOENT") {
+      logger.warn("notifier_store_load_failed", {
+        label,
+        file_path: filePath,
+        error: err,
+      });
+    }
+    return fallback;
+  }
+}
+
+function loadWhatsAppNotifierState(filePath = notifierStatePath) {
+  if (!filePath) {
+    return {
+      whatsappConnectionState: null,
+      whatsappActiveInstance: null,
+      whatsappPrimaryInstance: null,
+      whatsappPrimaryState: null,
+      whatsappFallbackInstance: null,
+      whatsappFallbackState: null,
+      whatsappLastCheckedAt: null,
+      whatsappLastError: null,
+      whatsappDisconnectedSince: null,
+      lastDeliveredAt: null,
+      lastDeliveredEventType: null,
+      lastDeliveredSource: null,
+      lastDeliveredTransport: null,
+    };
+  }
+
+  const parsed = loadJson(filePath, {}, "notifier state");
+  return {
+    whatsappConnectionState: parsed?.whatsappConnectionState || null,
+    whatsappActiveInstance: parsed?.whatsappActiveInstance || null,
+    whatsappPrimaryInstance: parsed?.whatsappPrimaryInstance || null,
+    whatsappPrimaryState: parsed?.whatsappPrimaryState || null,
+    whatsappFallbackInstance: parsed?.whatsappFallbackInstance || null,
+    whatsappFallbackState: parsed?.whatsappFallbackState || null,
+    whatsappLastCheckedAt: parsed?.whatsappLastCheckedAt || null,
+    whatsappLastError: parsed?.whatsappLastError || null,
+    whatsappDisconnectedSince: parsed?.whatsappDisconnectedSince || null,
+    lastDeliveredAt: parsed?.lastDeliveredAt || null,
+    lastDeliveredEventType: parsed?.lastDeliveredEventType || null,
+    lastDeliveredSource: parsed?.lastDeliveredSource || null,
+    lastDeliveredTransport: parsed?.lastDeliveredTransport || null,
+  };
+}
+
+function loadTelegramNotifierState(filePath = telegramNotifierStatePath) {
+  if (!filePath) {
+    return {
+      telegramLastCheckedAt: null,
+      telegramLastError: null,
+      telegramLastDeliveredChatId: null,
+      lastDeliveredAt: null,
+      lastDeliveredEventType: null,
+      lastDeliveredSource: null,
+      lastDeliveredTransport: null,
+    };
+  }
+
+  const parsed = loadJson(filePath, {}, "telegram notifier state");
+  return {
+    telegramLastCheckedAt: parsed?.telegramLastCheckedAt || null,
+    telegramLastError: parsed?.telegramLastError || null,
+    telegramLastDeliveredChatId: parsed?.telegramLastDeliveredChatId || null,
+    lastDeliveredAt: parsed?.lastDeliveredAt || null,
+    lastDeliveredEventType: parsed?.lastDeliveredEventType || null,
+    lastDeliveredSource: parsed?.lastDeliveredSource || null,
+    lastDeliveredTransport: parsed?.lastDeliveredTransport || null,
+  };
+}
+
+function pickLatestDeliveryState(whatsAppState = {}, telegramState = {}) {
+  const whatsAppDeliveredAt = Date.parse(whatsAppState.lastDeliveredAt || "");
+  const telegramDeliveredAt = Date.parse(telegramState.lastDeliveredAt || "");
+
+  if (Number.isFinite(telegramDeliveredAt) && telegramDeliveredAt > (Number.isFinite(whatsAppDeliveredAt) ? whatsAppDeliveredAt : -Infinity)) {
+    return telegramState;
+  }
+
+  return whatsAppState;
+}
+
+export function loadNotifierState(
+  filePath = notifierStatePath,
+  {
+    telegramFilePath = telegramNotifierStatePath,
+    includeTelegram = true,
+  } = {},
+) {
+  const whatsAppState = loadWhatsAppNotifierState(filePath);
+  const telegramState = includeTelegram
+    ? loadTelegramNotifierState(telegramFilePath)
+    : loadTelegramNotifierState(null);
+  const latestDelivery = pickLatestDeliveryState(whatsAppState, telegramState);
+
+  return {
+    ...whatsAppState,
+    telegramLastCheckedAt: includeTelegram ? telegramState.telegramLastCheckedAt : null,
+    telegramLastError: includeTelegram ? telegramState.telegramLastError : null,
+    telegramLastDeliveredAt: includeTelegram ? telegramState.lastDeliveredAt : null,
+    telegramLastDeliveredEventType: includeTelegram ? telegramState.lastDeliveredEventType : null,
+    telegramLastDeliveredSource: includeTelegram ? telegramState.lastDeliveredSource : null,
+    telegramLastDeliveredChatId: includeTelegram ? telegramState.telegramLastDeliveredChatId : null,
+    lastDeliveredAt: latestDelivery.lastDeliveredAt || whatsAppState.lastDeliveredAt || null,
+    lastDeliveredEventType: latestDelivery.lastDeliveredEventType || whatsAppState.lastDeliveredEventType || null,
+    lastDeliveredSource: latestDelivery.lastDeliveredSource || whatsAppState.lastDeliveredSource || null,
+    lastDeliveredTransport: latestDelivery.lastDeliveredTransport || whatsAppState.lastDeliveredTransport || null,
+  };
+}
+
+export function loadRecentSent(filePath = recentSentStorePath) {
+  return loadRecentSentEntries(filePath, logger);
+}
+
+function loadEventMedia() {
+  const media = {};
+  const baseNames = new Set([
+    "general",
+  ]);
+
+  for (const baseName of baseNames) {
+    const filename = resolveMediaAssetFilename(baseName, assetFiles);
+    media[baseName] = {
+      filename,
+      mimetype: getMediaAssetMimeType(filename),
+      data: readFileSync(join(assetsDir, filename)).toString("base64"),
+    };
+  }
+
+  return media;
+}
+
+function buildNotifierDeliveryKey({ alert, matched = [], chatId = "", eventType } = {}) {
+  return hashDeliveryKey(buildDeliveryKey(alert, matched, { chatId, eventType }));
+}
+
+function buildTargetLogFields(chatId = "") {
+  const target = parseNotifierTarget(chatId);
+  return {
+    chat_id: target.normalized || String(chatId || "").trim(),
+    transport: target.transport || "whatsapp",
+  };
+}
+
+function getJobPayload(job = {}) {
+  return job?.payload && typeof job.payload === "object"
+    ? job.payload
+    : job?.payload_json && typeof job.payload_json === "object"
+      ? job.payload_json
+      : {};
+}
+export { parseNotifierTarget };
+
+function resolveJobContext(job = {}) {
+  const payload = getJobPayload(job);
+  const alert = payload.alert && typeof payload.alert === "object" ? payload.alert : null;
+  const matched = Array.isArray(payload.matched) ? payload.matched : [];
+  const rawChatId = String(payload.chatId || job?.chat_id || "").trim();
+  const target = parseNotifierTarget(rawChatId);
+  const eventType = resolveEventType(payload.eventType || job?.event_type || detectEventType(alert));
+  const source = String(payload.source || job?.source || alert?.source || "manual");
+  const deliveryKey = String(job?.delivery_key || job?.deliveryKey || "").trim()
+    || buildNotifierDeliveryKey({
+      alert,
+      matched,
+      chatId: target.normalized || rawChatId,
+      eventType,
+    });
+
+  return {
+    payload,
+    alert,
+    matched,
+    target,
+    eventType,
+    source,
+    deliveryKey,
+  };
+}
+
+export class WhatsAppNotifier {
+  constructor({
+    evolutionUrl = process.env.EVOLUTION_URL || DEFAULT_EVOLUTION_URL,
+    evolutionApiKey = process.env.EVOLUTION_API_KEY || "",
+    evolutionInstance = process.env.EVOLUTION_INSTANCE || "default",
+    evolutionFallbackInstance = process.env.EVOLUTION_FALLBACK_INSTANCE || "",
+    evolutionTimeoutMs = DEFAULT_EVOLUTION_TIMEOUT_MS,
+    stateFilePath = notifierStatePath,
+    recentSentFilePath = recentSentStorePath,
+    dedupeFilePath = notifierDeliveryStorePath,
+  } = {}) {
+    this.evolutionUrl = evolutionUrl;
+    this.evolutionApiKey = evolutionApiKey;
+    this.evolutionInstance = evolutionInstance;
+    this.evolutionFallbackInstance = String(evolutionFallbackInstance || "").trim();
+    this.evolutionTimeoutMs = evolutionTimeoutMs;
+    this.stateFilePath = stateFilePath;
+    this.recentSentFilePath = recentSentFilePath;
+    this.state = loadWhatsAppNotifierState(stateFilePath);
+    this.dedupeGate = new DeliveryDedupeGate({
+      filePath: dedupeFilePath,
+      maxEntries: 10_000,
+      ttlMs: 30 * 24 * 60 * 60 * 1000,
+      label: "notifier delivery store",
+    });
+    this.eventMedia = loadEventMedia();
+  }
+
+  status() {
+    return {
+      ...this.state,
+      dedupeSize: this.dedupeGate.size,
+      dedupeInFlight: this.dedupeGate.inFlightSize,
+    };
+  }
+
+  updateState(patch = {}) {
+    this.state = {
+      ...this.state,
+      ...patch,
+    };
+    persistJson(this.stateFilePath, this.state);
+    return this.state;
+  }
+
+  async ensureReady() {
+    try {
+      await this.ensureEvolutionInstance();
+    } catch (err) {
+      this.updateState({
+        whatsappLastCheckedAt: toIsoString(),
+        whatsappLastError: err.message,
+      });
+      throw err;
+    }
+  }
+
+  async refreshStatus() {
+    try {
+      const active = await this.resolveActiveEvolutionInstance();
+      this.updateState({
+        whatsappLastCheckedAt: toIsoString(),
+        whatsappLastError: null,
+        whatsappDisconnectedSince: null,
+        whatsappConnectionState: active.connectionState,
+        whatsappPrimaryInstance: active.primary.instanceName,
+        whatsappPrimaryState: active.primary.connectionState,
+        whatsappFallbackInstance: active.fallback.instanceName,
+        whatsappFallbackState: active.fallback.connectionState,
+        whatsappActiveInstance: active.instanceName,
+      });
+      return this.status();
+    } catch (err) {
+      const disconnectedSince = this.state.whatsappDisconnectedSince || toIsoString();
+      this.updateState({
+        whatsappLastCheckedAt: toIsoString(),
+        whatsappLastError: err.message,
+        whatsappDisconnectedSince: disconnectedSince,
+      });
+      throw err;
+    }
+  }
+
+  async send(job = {}) {
+    const {
+      alert,
+      matched,
+      target,
+      eventType,
+      source,
+      deliveryKey,
+    } = resolveJobContext(job);
+
+    if (!alert || !target.chatId) {
+      throw new Error("outbox job missing alert or chatId");
+    }
+    if (target.transport !== "whatsapp") {
+      throw new Error(`unsupported WhatsApp notifier target transport: ${target.transport || "unknown"}`);
+    }
+
+    const caption = formatMessage(alert, matched, { eventType });
+
+    if (this.dedupeGate.shouldSuppress(deliveryKey)) {
+      return {
+        skipped: true,
+        reason: "notifier_duplicate",
+        key: deliveryKey,
+        eventType,
+        chatId: target.normalized,
+      };
+    }
+
+    this.dedupeGate.markInFlight(deliveryKey);
+    try {
+      const active = await this.resolveActiveEvolutionInstance();
+      const result = await this.sendImageMessage({
+        alert,
+        caption,
+        chatId: target.chatId,
+        eventType,
+        instanceName: active.instanceName,
+      });
+      this.dedupeGate.remember(deliveryKey);
+      appendRecentSentEntry({
+        deliveredAt: toIsoString(),
+        eventType,
+        source,
+        title: alert.title || "",
+        chatId: target.normalized,
+        matchedLocations: matched,
+        semanticKey: buildSemanticAlertKey(alert, matched, { eventType }),
+        deliveryKey,
+        alertDate: alert.alertDate || null,
+        receivedAt: alert.receivedAt || null,
+        deliveryMode: result.mode,
+        transport: "whatsapp",
+        instanceName: active.instanceName,
+        usedFallback: Boolean(active.usedFallback),
+      }, {
+        filePath: this.recentSentFilePath,
+        maxEntries: MAX_RECENT_SENT,
+        logger,
+      });
+      this.updateState({
+        whatsappLastCheckedAt: toIsoString(),
+        whatsappLastError: null,
+        whatsappDisconnectedSince: null,
+        whatsappConnectionState: active.connectionState,
+        whatsappPrimaryInstance: active.primary.instanceName,
+        whatsappPrimaryState: active.primary.connectionState,
+        whatsappFallbackInstance: active.fallback.instanceName,
+        whatsappFallbackState: active.fallback.connectionState,
+        whatsappActiveInstance: active.instanceName,
+        lastDeliveredAt: toIsoString(),
+        lastDeliveredEventType: eventType,
+        lastDeliveredSource: source,
+        lastDeliveredTransport: "whatsapp",
+      });
+      return {
+        ...result,
+        skipped: false,
+        key: deliveryKey,
+        eventType,
+        chatId: target.normalized,
+        transport: "whatsapp",
+        instanceName: active.instanceName,
+        usedFallback: Boolean(active.usedFallback),
+      };
+    } finally {
+      this.dedupeGate.clearInFlight(deliveryKey);
+    }
+  }
+
+  async fetchEvolution(path, options = {}) {
+    return fetch(`${this.evolutionUrl}${path}`, {
+      ...options,
+      headers: {
+        ...buildEvolutionHeaders(this.evolutionApiKey),
+        ...(options.headers || {}),
+      },
+      signal: AbortSignal.timeout(this.evolutionTimeoutMs),
+    });
+  }
+
+  async ensureEvolutionInstance(instanceName = this.evolutionInstance, { createIfMissing = true } = {}) {
+    const instancesRes = await this.fetchEvolution("/instance/fetchInstances");
+    if (!instancesRes.ok) {
+      throw new Error(`evolution fetchInstances responded ${instancesRes.status}: ${await instancesRes.text()}`);
+    }
+
+    const instances = getInstances(await instancesRes.json());
+    const exists = instances.some((instance) =>
+      instance?.name === instanceName || instance?.instanceName === instanceName,
+    );
+
+    if (exists || !createIfMissing) return;
+
+    const createRes = await this.fetchEvolution("/instance/create", {
+      method: "POST",
+      body: JSON.stringify({
+        instanceName,
+        integration: "WHATSAPP-BAILEYS",
+        qrcode: true,
+      }),
+    });
+    if (!createRes.ok) {
+      throw new Error(`evolution create responded ${createRes.status}: ${await createRes.text()}`);
+    }
+  }
+
+  async fetchEvolutionConnectionState(instanceName = this.evolutionInstance) {
+    const stateRes = await this.fetchEvolution(`/instance/connectionState/${instanceName}`);
+    if (!stateRes.ok) {
+      throw new Error(
+        `evolution connectionState ${instanceName} responded ${stateRes.status}: ${await stateRes.text()}`,
+      );
+    }
+
+    return getConnectionState(await stateRes.json());
+  }
+
+  async fetchEvolutionInstanceStatus(instanceName, { createIfMissing = false } = {}) {
+    if (!instanceName) {
+      return { instanceName: null, connectionState: null, error: null };
+    }
+
+    try {
+      await this.ensureEvolutionInstance(instanceName, { createIfMissing });
+      const connectionState = await this.fetchEvolutionConnectionState(instanceName);
+      return { instanceName, connectionState, error: null };
+    } catch (err) {
+      return { instanceName, connectionState: null, error: err.message };
+    }
+  }
+
+  async resolveActiveEvolutionInstance() {
+    const primary = await this.fetchEvolutionInstanceStatus(this.evolutionInstance, {
+      createIfMissing: true,
+    });
+    const fallback = this.evolutionFallbackInstance
+      ? await this.fetchEvolutionInstanceStatus(this.evolutionFallbackInstance, {
+        createIfMissing: false,
+      })
+      : { instanceName: null, connectionState: null, error: null };
+
+    const choice = chooseEvolutionInstance({
+      primaryInstance: primary.instanceName,
+      primaryState: primary.connectionState,
+      fallbackInstance: fallback.instanceName,
+      fallbackState: fallback.connectionState,
+    });
+
+    if (choice.instanceName && String(choice.connectionState).toLowerCase() === "open") {
+      return {
+        ...choice,
+        primary,
+        fallback,
+      };
+    }
+
+    throw new Error(
+      `evolution sender unavailable: primary=${primary.connectionState || primary.error || "missing"} fallback=${fallback.instanceName ? fallback.connectionState || fallback.error || "missing" : "disabled"}`,
+    );
+  }
+
+  async sendTextMessage({ caption, chatId, instanceName }) {
+    const res = await this.fetchEvolution(`/message/sendText/${instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: chatId,
+        text: caption,
+        delay: 0,
+        linkPreview: false,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`evolution responded ${res.status}: ${await res.text()}`);
+    }
+    return { mode: "text" };
+  }
+
+  async sendImageMessage({ alert, caption, chatId, eventType, instanceName }) {
+    const baseName = resolveMessageMediaBaseName(alert, eventType);
+    const file = this.eventMedia[baseName];
+    const res = await this.fetchEvolution(`/message/sendMedia/${instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: chatId,
+        mediatype: "image",
+        mimetype: file.mimetype,
+        media: file.data,
+        fileName: file.filename,
+        caption,
+      }),
+    });
+    if (res.ok) {
+      return { mode: "image" };
+    }
+
+    const body = await res.text();
+    if (shouldFallbackToText(res.status, body)) {
+      logger.warn("whatsapp_media_fallback", {
+        ...buildTargetLogFields(chatId),
+        event_type: eventType,
+        instance_name: instanceName,
+        fallback_to: "text",
+        response_status: res.status,
+        response_body: body,
+      });
+      return this.sendTextMessage({ caption, chatId, instanceName });
+    }
+
+    throw new Error(`evolution responded ${res.status}: ${body}`);
+  }
+}
+
+export class TelegramNotifier {
+  constructor({
+    botToken = process.env.TELEGRAM_BOT_TOKEN || "",
+    telegramTimeoutMs = DEFAULT_TELEGRAM_TIMEOUT_MS,
+    stateFilePath = telegramNotifierStatePath,
+    recentSentFilePath = recentSentStorePath,
+    callTelegramApi = null,
+  } = {}) {
+    this.botToken = String(botToken || "").trim();
+    this.telegramTimeoutMs = telegramTimeoutMs;
+    this.stateFilePath = stateFilePath;
+    this.recentSentFilePath = recentSentFilePath;
+    this.state = loadTelegramNotifierState(stateFilePath);
+    this.callTelegramApi = typeof callTelegramApi === "function"
+      ? callTelegramApi
+      : (method, payload = null) => this.fetchTelegram(method, payload);
+  }
+
+  status() {
+    return {
+      ...this.state,
+    };
+  }
+
+  updateState(patch = {}) {
+    this.state = {
+      ...this.state,
+      ...patch,
+    };
+    persistJson(this.stateFilePath, this.state);
+    return this.state;
+  }
+
+  async ensureReady() {
+    if (!this.botToken) {
+      return this.status();
+    }
+
+    try {
+      await this.callTelegramApi("getMe");
+      this.updateState({
+        telegramLastCheckedAt: toIsoString(),
+        telegramLastError: null,
+      });
+      return this.status();
+    } catch (err) {
+      this.updateState({
+        telegramLastCheckedAt: toIsoString(),
+        telegramLastError: formatTelegramError(err),
+      });
+      throw err;
+    }
+  }
+
+  async refreshStatus() {
+    return this.ensureReady();
+  }
+
+  async send(job = {}) {
+    const {
+      alert,
+      matched,
+      target,
+      eventType,
+      source,
+      deliveryKey,
+    } = resolveJobContext(job);
+
+    if (!alert || !target.chatId) {
+      throw new Error("outbox job missing alert or chatId");
+    }
+    if (target.transport !== "telegram") {
+      throw new Error(`unsupported Telegram notifier target transport: ${target.transport || "unknown"}`);
+    }
+    if (!this.botToken) {
+      throw new Error("TELEGRAM_BOT_TOKEN is required for telegram notifier targets");
+    }
+
+    const caption = formatMessage(alert, matched, { eventType });
+    const result = await retryTelegramOperation(
+      "sendMessage",
+      () => this.callTelegramApi("sendMessage", {
+        chat_id: target.chatId,
+        text: caption,
+      }),
+      {
+        shouldRetry: isTelegramTransientError,
+        onRetry: (detail) => {
+          logger.warn("telegram_notifier_retry", {
+            attempt: detail.attempt,
+            delay_ms: detail.delayMs,
+            delivery_key: deliveryKey,
+            source,
+            event_type: eventType,
+            ...buildTargetLogFields(target.normalized),
+            error: detail.error,
+          });
+        },
+      },
+    );
+
+    appendRecentSentEntry({
+      deliveredAt: toIsoString(),
+      eventType,
+      source,
+      title: alert.title || "",
+      chatId: target.normalized,
+      matchedLocations: matched,
+      semanticKey: buildSemanticAlertKey(alert, matched, { eventType }),
+      deliveryKey,
+      alertDate: alert.alertDate || null,
+      receivedAt: alert.receivedAt || null,
+      deliveryMode: "text",
+      transport: "telegram",
+      providerMessageId: result?.message_id ?? null,
+      instanceName: "",
+      usedFallback: false,
+    }, {
+      filePath: this.recentSentFilePath,
+      maxEntries: MAX_RECENT_SENT,
+      logger,
+    });
+
+    this.updateState({
+      telegramLastCheckedAt: toIsoString(),
+      telegramLastError: null,
+      telegramLastDeliveredChatId: target.chatId,
+      lastDeliveredAt: toIsoString(),
+      lastDeliveredEventType: eventType,
+      lastDeliveredSource: source,
+      lastDeliveredTransport: "telegram",
+    });
+
+    return {
+      skipped: false,
+      mode: "text",
+      key: deliveryKey,
+      eventType,
+      chatId: target.normalized,
+      transport: "telegram",
+      providerMessageId: result?.message_id ?? null,
+      instanceName: "",
+      usedFallback: false,
+    };
+  }
+
+  async fetchTelegram(method, payload = null) {
+    const res = await fetch(
+      `https://api.telegram.org/bot${this.botToken}/${method}`,
+      {
+        method: payload ? "POST" : "GET",
+        headers: payload ? { "Content-Type": "application/json" } : undefined,
+        body: payload ? JSON.stringify(payload) : undefined,
+        signal: AbortSignal.timeout(this.telegramTimeoutMs),
+      },
+    );
+
+    if (!res.ok) {
+      const bodyText = await res.text();
+      const err = new Error(`telegram ${method} responded ${res.status}: ${bodyText || "empty response"}`);
+      err.status = res.status;
+      throw err;
+    }
+
+    const body = await res.json();
+    if (!body?.ok) {
+      const err = new Error(body?.description || `telegram ${method} failed`);
+      err.status = body?.error_code;
+      throw err;
+    }
+
+    return body.result;
+  }
+}

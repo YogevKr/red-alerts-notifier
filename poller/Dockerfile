@@ -1,0 +1,47 @@
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json .
+COPY package-lock.json .
+RUN npm ci --omit=dev
+COPY index.js .
+COPY db.js .
+COPY outbox-schema.js .
+COPY notification-outbox.js .
+COPY outbox-latency.js .
+COPY notifier-service.js .
+COPY notifier-worker.js .
+COPY notifier-worker-jobs.js .
+COPY notifier-worker-loop.js .
+COPY notifier-worker-wakeup.js .
+COPY telegram-bot.js .
+COPY preset-alerts.js .
+COPY runtime-stores.js .
+COPY ops-timeline-store.js .
+COPY health.js .
+COPY health-snapshot.js .
+COPY config.js .
+COPY monitor-state.js .
+COPY notifier-target.js .
+COPY poller-app.js .
+COPY poller-health-subsystem.js .
+COPY poller-source-subsystem.js .
+COPY source-runtime.js .
+COPY source-registry.js .
+COPY http-server.js .
+COPY pagerduty-runtime.js .
+COPY poll-runtime.js .
+COPY alert-pipeline.js .
+COPY evolution-client.js .
+COPY alert-enqueue.js .
+COPY alert-enqueue-helpers.js .
+COPY simulate.js .
+COPY delivery-dedupe.js .
+COPY debug-capture.js .
+COPY log.js .
+COPY pagerduty.js .
+COPY lib.js .
+COPY telegram.js .
+COPY message-templates.js .
+COPY sources.js .
+COPY assets ./assets
+CMD ["node", "index.js"]

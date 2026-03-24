@@ -1,0 +1,153 @@
+services:
+  evolution-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${EVOLUTION_DB_NAME:-evolution}
+      - POSTGRES_USER=${EVOLUTION_DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${EVOLUTION_DB_PASSWORD:-postgres}
+    volumes:
+      - evolution_db:/var/lib/postgresql/data
+
+  evolution-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - evolution_redis:/data
+
+  evolution-api:
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:latest}
+    restart: unless-stopped
+    ports:
+      - target: 8080
+        published: "${EVOLUTION_PUBLISHED_PORT:-3001}"
+        host_ip: "${EVOLUTION_HOST_IP:-127.0.0.1}"
+    environment:
+      - SERVER_URL=${EVOLUTION_SERVER_URL:-http://127.0.0.1:3001}
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-secret}
+      - TELEMETRY=${EVOLUTION_TELEMETRY:-false}
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://${EVOLUTION_DB_USER:-postgres}:${EVOLUTION_DB_PASSWORD:-postgres}@evolution-db:5432/${EVOLUTION_DB_NAME:-evolution}
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_NEW_MESSAGE=false
+      - DATABASE_SAVE_MESSAGE_UPDATE=false
+      - DATABASE_SAVE_DATA_CONTACTS=false
+      - DATABASE_SAVE_DATA_CHATS=false
+      - DATABASE_SAVE_DATA_LABELS=false
+      - DATABASE_SAVE_DATA_HISTORIC=false
+      - DATABASE_SAVE_IS_ON_WHATSAPP=false
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://evolution-redis:6379/1
+      - CACHE_REDIS_PREFIX_KEY=${EVOLUTION_REDIS_PREFIX:-red_alerts}
+      - CACHE_REDIS_SAVE_INSTANCES=false
+      - CONFIG_SESSION_PHONE_CLIENT=${EVOLUTION_SESSION_PHONE_CLIENT:-Evolution API}
+      - CONFIG_SESSION_PHONE_NAME=${EVOLUTION_SESSION_PHONE_NAME:-Chrome}
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      - evolution-db
+      - evolution-redis
+
+  poller:
+    build: ./poller
+    restart: unless-stopped
+    ports:
+      - target: 3000
+        published: "${POLLER_PUBLISHED_PORT:-3000}"
+        host_ip: "${POLLER_HOST_IP:-127.0.0.1}"
+    environment:
+      - EVOLUTION_URL=${EVOLUTION_URL:-http://evolution-api:8080}
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:-secret}
+      - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE:-default}
+      - EVOLUTION_FALLBACK_INSTANCE=${EVOLUTION_FALLBACK_INSTANCE:-}
+      - WHATSAPP_TARGETS=${WHATSAPP_TARGETS:-}
+      - WHATSAPP_NUMBER=${WHATSAPP_NUMBER:-}
+      - WHATSAPP_CHAT_ID=${WHATSAPP_CHAT_ID:-}
+      - TEST_NOTIFICATION_TARGETS=${TEST_NOTIFICATION_TARGETS:-}
+      - NOTIFIER_ACTIVE_TRANSPORTS=${NOTIFIER_ACTIVE_TRANSPORTS:-}
+      - ACTIVE_SOURCES=${ACTIVE_SOURCES:-tzevaadom,oref_alerts,oref_history}
+      - TZEVAADOM_RECONNECT_MS=${TZEVAADOM_RECONNECT_MS:-5000}
+      - TZEVAADOM_RAW_LOG_ENABLED=${TZEVAADOM_RAW_LOG_ENABLED:-false}
+      - TZEVAADOM_RAW_LOG_MAX_ENTRIES=${TZEVAADOM_RAW_LOG_MAX_ENTRIES:-500}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_SUPPRESSION_INTERVAL_MS=${LOG_SUPPRESSION_INTERVAL_MS:-60000}
+      - DELIVERY_ENABLED=${DELIVERY_ENABLED:-false}
+      - DEBUG_CAPTURE_ENABLED=${DEBUG_CAPTURE_ENABLED:-true}
+      - DEBUG_CAPTURE_TTL_HOURS=${DEBUG_CAPTURE_TTL_HOURS:-0}
+      - DEBUG_CAPTURE_MAX_ENTRIES=${DEBUG_CAPTURE_MAX_ENTRIES:-50000}
+      - PAGERDUTY_ROUTING_KEY=${PAGERDUTY_ROUTING_KEY:-}
+      - PAGERDUTY_EVENTS_URL=${PAGERDUTY_EVENTS_URL:-https://events.pagerduty.com/v2/enqueue}
+      - PAGERDUTY_SOURCE=${PAGERDUTY_SOURCE:-red-alerts/poller}
+      - PAGERDUTY_COMPONENT=${PAGERDUTY_COMPONENT:-poller}
+      - PAGERDUTY_GROUP=${PAGERDUTY_GROUP:-red-alerts}
+      - PAGERDUTY_CLASS=${PAGERDUTY_CLASS:-ops}
+      - PAGERDUTY_WHATSAPP_DISCONNECT_MS=${PAGERDUTY_WHATSAPP_DISCONNECT_MS:-120000}
+      - PAGERDUTY_SOURCE_FAILURE_CYCLES=${PAGERDUTY_SOURCE_FAILURE_CYCLES:-6}
+      - PAGERDUTY_POLL_ERROR_CYCLES=${PAGERDUTY_POLL_ERROR_CYCLES:-3}
+      - PAGERDUTY_DB_DISCONNECT_MS=${PAGERDUTY_DB_DISCONNECT_MS:-30000}
+      - PAGERDUTY_OUTBOX_BACKLOG_MS=${PAGERDUTY_OUTBOX_BACKLOG_MS:-60000}
+      - PAGERDUTY_NOTIFIER_STALE_MS=${PAGERDUTY_NOTIFIER_STALE_MS:-45000}
+      - PAGERDUTY_TZEVAADOM_DISCONNECT_MS=${PAGERDUTY_TZEVAADOM_DISCONNECT_MS:-300000}
+      - POLL_INTERVAL_MS=${POLL_INTERVAL_MS:-10000}
+      - OREF_ALERTS_POLL_INTERVAL_MS=${OREF_ALERTS_POLL_INTERVAL_MS:-2000}
+      - OREF_HISTORY_POLL_INTERVAL_MS=${OREF_HISTORY_POLL_INTERVAL_MS:-10000}
+      - POLLER_DATABASE_URL=${POLLER_DATABASE_URL:-postgresql://postgres:postgres@evolution-db:5432/evolution}
+      - ALERT_LOCATIONS=${ALERT_LOCATIONS:-}
+    volumes:
+      - poller_state:/app/data
+    depends_on:
+      - evolution-api
+      - evolution-db
+
+  notifier-worker:
+    build: ./poller
+    command: ["node", "notifier-worker.js"]
+    restart: unless-stopped
+    environment:
+      - EVOLUTION_URL=${EVOLUTION_URL:-http://evolution-api:8080}
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:-secret}
+      - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE:-default}
+      - EVOLUTION_FALLBACK_INSTANCE=${EVOLUTION_FALLBACK_INSTANCE:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - POLLER_DATABASE_URL=${POLLER_DATABASE_URL:-postgresql://postgres:postgres@evolution-db:5432/evolution}
+      - OUTBOX_POLL_INTERVAL_MS=${OUTBOX_POLL_INTERVAL_MS:-1000}
+      - OUTBOX_RESERVE_BATCH=${OUTBOX_RESERVE_BATCH:-5}
+      - OUTBOX_MAX_CONCURRENCY=${OUTBOX_MAX_CONCURRENCY:-}
+      - OUTBOX_RETRY_BASE_MS=${OUTBOX_RETRY_BASE_MS:-15000}
+      - OUTBOX_MAX_ATTEMPTS=${OUTBOX_MAX_ATTEMPTS:-8}
+      - OUTBOX_PROCESSING_TIMEOUT_MS=${OUTBOX_PROCESSING_TIMEOUT_MS:-30000}
+      - OUTBOX_STATUS_REFRESH_MS=${OUTBOX_STATUS_REFRESH_MS:-15000}
+      - OUTBOX_NOTIFY_RECONNECT_DELAY_MS=${OUTBOX_NOTIFY_RECONNECT_DELAY_MS:-5000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_SUPPRESSION_INTERVAL_MS=${LOG_SUPPRESSION_INTERVAL_MS:-60000}
+      - NOTIFIER_ACTIVE_TRANSPORTS=${NOTIFIER_ACTIVE_TRANSPORTS:-}
+      - NOTIFIER_WORKER_ID=${NOTIFIER_WORKER_ID:-}
+    volumes:
+      - poller_state:/app/data
+    depends_on:
+      - evolution-api
+      - evolution-db
+
+  telegram-bot:
+    build: ./poller
+    command: ["node", "telegram-bot.js"]
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-}
+      - TELEGRAM_POLL_TIMEOUT_SECONDS=${TELEGRAM_POLL_TIMEOUT_SECONDS:-50}
+      - TELEGRAM_POLL_RETRY_MS=${TELEGRAM_POLL_RETRY_MS:-5000}
+      - POLLER_INTERNAL_URL=${POLLER_INTERNAL_URL:-http://poller:3000}
+    volumes:
+      - telegram_bot_state:/app/data
+    depends_on:
+      - poller
+
+volumes:
+  evolution_db:
+  evolution_redis:
+  evolution_instances:
+  poller_state:
+  telegram_bot_state:

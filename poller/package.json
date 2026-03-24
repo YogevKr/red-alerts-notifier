@@ -1,0 +1,13 @@
+{
+  "name": "oref-poller",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "pg": "^8.20.0",
+    "qrcode": "^1.5.4"
+  }
+}
