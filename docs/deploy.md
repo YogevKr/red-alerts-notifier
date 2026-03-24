@@ -13,6 +13,39 @@ docker compose up -d --build
 - Docker and Docker Compose
 - A configured `.env` file (see `.env.example`)
 
+## Required resources
+
+Single-instance baseline:
+
+- CPU: minimum `e2-small` / shared-core (`0.5 vCPU`), recommended `e2-medium` or `1-2 vCPU`
+- RAM: minimum `2 GB`, recommended `4 GB`
+- Disk: minimum `10 GB SSD`, recommended `20 GB SSD`
+- Network: reliable outbound internet from an Israeli region/IP, because OREF endpoints are geo-restricted
+
+What these resources cover:
+
+- `evolution-api`
+- `postgres`
+- `redis`
+- `poller`
+- `notifier-worker`
+- `telegram-bot`
+
+You also need:
+
+- A host that runs continuously
+- Persistent Docker volumes
+- A WhatsApp sender number for WhatsApp delivery
+- A Telegram bot token for Telegram delivery
+
+Extra headroom is recommended if you increase debug capture retention, keep large Docker image caches, or run both WhatsApp and Telegram continuously over long periods.
+
+Observed low-traffic footprint:
+
+- roughly `300-400 MiB` RAM for the full stack at steady state
+- very low CPU usage under idle/light load
+- `e2-small` is acceptable for lightweight personal deployments, but `e2-medium` is safer if you expect bursts
+
 ## Full deploy
 
 1. Copy `.env.example` to `.env` and fill in your settings

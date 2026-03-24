@@ -202,6 +202,14 @@ export function getMediaAssetMimeType(filename = "") {
   throw new Error(`Unsupported media asset type for ${filename}`);
 }
 
+export function getConfiguredMediaBaseNames(messageTemplates = MESSAGE_TEMPLATES.whatsapp) {
+  return [...new Set(
+    Object.values(messageTemplates)
+      .map((config) => String(config?.mediaBaseName || "").trim())
+      .filter(Boolean),
+  )];
+}
+
 export function resolveEventType(eventType = "") {
   if (Object.values(EVENT_TYPES).includes(eventType)) return eventType;
   return EVENT_TYPES.UNKNOWN;

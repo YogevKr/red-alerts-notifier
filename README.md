@@ -90,6 +90,38 @@ After starting the stack, pair your WhatsApp sender number:
 2. Scan with WhatsApp on the sender phone
 3. Check `http://127.0.0.1:3000/health` — `whatsappConnectionState` should be `open`
 
+## Required resources
+
+For a typical single-instance self-hosted deployment:
+
+| Resource | Minimum | Recommended | Notes |
+|----------|---------|-------------|-------|
+| CPU | `e2-small` / shared-core (`0.5 vCPU`) | `e2-medium` or `1-2 vCPU` | `e2-small` is acceptable for light personal use; use more CPU headroom if you expect bursts or heavier delivery volume |
+| RAM | 2 GB | 4 GB | The stack is fairly light at idle, but Evolution API + PostgreSQL still need some headroom |
+| Disk | 10 GB SSD | 20 GB SSD | Includes Docker images, PostgreSQL data, Redis state, WhatsApp session state, and debug captures |
+| Network | Stable outbound internet | Stable outbound internet from an Israeli region/IP | OREF endpoints are geo-restricted to Israel |
+
+Required runtime pieces:
+
+- Docker Engine with Docker Compose
+- A server or VM that stays online continuously
+- Persistent Docker volumes for PostgreSQL, Redis, Evolution instances, poller state, and Telegram bot state
+- Outbound access to OREF endpoints, `ws.tzevaadom.co.il`, Telegram Bot API, and WhatsApp/Evolution dependencies
+
+Required accounts/integrations:
+
+- WhatsApp: one phone number you control, if you want WhatsApp delivery
+- Telegram: one bot token from @BotFather, if you want Telegram delivery
+- PagerDuty: optional, only if you want incident notifications
+
+Operational notes:
+
+- No GPU is required.
+- Ports are bound to `127.0.0.1` by default; inbound public exposure is not required unless you choose to add it.
+- In a real low-traffic deployment, the full stack was observed using roughly `300-400 MiB` RAM at steady state.
+- `e2-small` is a cost-focused option for hobby or family use. If you want extra margin for reconnect storms, alert spikes, or future growth, use `e2-medium` or larger.
+- If you keep debug capture enabled or raise retention limits, plan for extra disk headroom.
+
 ## Configuration
 
 Copy `.env.example` to `.env`. Key variables:
@@ -106,6 +138,45 @@ Copy `.env.example` to `.env`. Key variables:
 | `NOTIFIER_ACTIVE_TRANSPORTS` | No | `telegram`, `whatsapp`, or both |
 
 See [`.env.example`](.env.example) for the full list including polling intervals, PagerDuty, and debug options.
+
+## Customization
+
+### Change message text
+
+Edit [poller/message-templates.js](poller/message-templates.js). The WhatsApp message bodies live under `MESSAGE_TEMPLATES.whatsapp`, for example `preAlert.upcomingAlertsTemplate`, `activeAlert.rocketTemplate`, and `allClear.template`.
+
+### Change the default image
+
+Replace [poller/assets/general.png](poller/assets/general.png). WhatsApp media assets support `.png`, `.jpg`, and `.jpeg`.
+
+### Use different images for different events
+
+1. Add image files under `poller/assets/`.
+2. In [poller/message-templates.js](poller/message-templates.js), set a different `mediaBaseName` for the event you want to customize.
+3. Create a matching file in `poller/assets` using that basename.
+
+Example:
+
+```js
+activeAlert: {
+  mediaBaseName: "rocket",
+  rocketTemplate: "ירי טילים ורקטות באזורך.\n\nיש להכנס למרחב המוגן ולשהות בו עד לקבלת הודעת שחרור.",
+},
+allClear: {
+  mediaBaseName: "all-clear",
+  template: "האירוע הסתיים - ניתן לצאת מהמרחב המוגן.",
+},
+```
+
+Then add files like `poller/assets/rocket.png` and `poller/assets/all-clear.png`.
+
+After changing templates or assets, rebuild the containers:
+
+```bash
+sudo docker compose up -d --build
+```
+
+Image assets currently apply to WhatsApp delivery. Telegram notifications are sent as text.
 
 ## Services
 

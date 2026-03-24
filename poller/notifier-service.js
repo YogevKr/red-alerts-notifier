@@ -9,6 +9,7 @@ import {
   chooseEvolutionInstance,
   detectEventType,
   formatMessage,
+  getConfiguredMediaBaseNames,
   getConnectionState,
   getInstances,
   getMediaAssetMimeType,
@@ -174,9 +175,7 @@ export function loadRecentSent(filePath = recentSentStorePath) {
 
 function loadEventMedia() {
   const media = {};
-  const baseNames = new Set([
-    "general",
-  ]);
+  const baseNames = getConfiguredMediaBaseNames();
 
   for (const baseName of baseNames) {
     const filename = resolveMediaAssetFilename(baseName, assetFiles);

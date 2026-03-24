@@ -4,7 +4,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getMediaAssetMimeType, resolveMediaAssetFilename } from "./lib.js";
+import {
+  getConfiguredMediaBaseNames,
+  getMediaAssetMimeType,
+  resolveMediaAssetFilename,
+} from "./lib.js";
 import {
   loadNotifierState,
   loadRecentSent,
@@ -18,9 +22,7 @@ const assetFiles = readdirSync(assetsDir);
 
 describe("notifier asset names", () => {
   it("match the committed asset basenames", () => {
-    const baseNames = [
-      "general",
-    ];
+    const baseNames = getConfiguredMediaBaseNames();
 
     for (const baseName of baseNames) {
       const filename = resolveMediaAssetFilename(baseName, assetFiles);

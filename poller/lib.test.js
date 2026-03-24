@@ -21,6 +21,7 @@ import {
     shouldSuppressDuplicateDelivery,
     getConnectionState,
     chooseEvolutionInstance,
+    getConfiguredMediaBaseNames,
     getMediaAssetMimeType,
     normalizeChatTarget,
     alertKey,
@@ -658,6 +659,21 @@ describe("getMediaAssetMimeType", () => {
 
   it("returns png mime type", () => {
     assert.equal(getMediaAssetMimeType("general.png"), "image/png");
+  });
+});
+
+describe("getConfiguredMediaBaseNames", () => {
+  it("collects unique configured basenames", () => {
+    assert.deepEqual(
+      getConfiguredMediaBaseNames({
+        preAlert: { mediaBaseName: "general" },
+        activeAlert: { mediaBaseName: "rocket" },
+        allClear: { mediaBaseName: "general" },
+        generalAlert: { mediaBaseName: "fallback" },
+        ignored: {},
+      }),
+      ["general", "rocket", "fallback"],
+    );
   });
 });
 
