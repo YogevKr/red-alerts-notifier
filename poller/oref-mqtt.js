@@ -12,9 +12,6 @@ export const OREF_MQTT_SDK = 10117;
 export const OREF_MQTT_ANDROID_ID_SUFFIX = "-Google-Android-SDK-built-for-x86_64";
 export const OREF_MQTT_DEFAULT_TOPICS = [
   "com.alert.meserhadash",
-  "alerts",
-  "all",
-  "broadcast",
 ];
 
 const OREF_HEADERS = {
@@ -114,11 +111,6 @@ function normalizeTopicList(topics = []) {
   )];
 }
 
-function arraysEqual(left = [], right = []) {
-  return left.length === right.length
-    && left.every((value, index) => value === right[index]);
-}
-
 function normalizeCityIds(citiesIds = "") {
   if (Array.isArray(citiesIds)) {
     return citiesIds
@@ -196,39 +188,6 @@ export function buildOrefCityMap(payload = []) {
         return [[id, label.split("|")[0].trim()]];
       }),
   );
-}
-
-export function resolveOrefMqttTopicsForLocations(
-  locations = [],
-  cityIdToName = new Map(),
-  defaultTopics = OREF_MQTT_DEFAULT_TOPICS,
-) {
-  const configuredLocations = normalizeAreas(locations);
-  if (configuredLocations.length === 0) {
-    return normalizeTopicList(defaultTopics);
-  }
-
-  const locationToTopic = new Map(
-    [...cityIdToName.entries()]
-      .flatMap(([cityId, locationName]) => {
-        const normalizedLocation = normalizeLocationName(locationName);
-        const normalizedCityId = normalizeLocationName(cityId).replace(/^500/, "");
-        if (!normalizedLocation || !normalizedCityId) return [];
-        return [[normalizedLocation, `500${normalizedCityId}`]];
-      }),
-  );
-
-  const derivedTopics = configuredLocations
-    .map((location) => locationToTopic.get(normalizeLocationName(location)) || "")
-    .filter(Boolean);
-
-  return derivedTopics.length > 0
-    ? normalizeTopicList(derivedTopics)
-    : normalizeTopicList(defaultTopics);
-}
-
-export function areDefaultOrefMqttTopics(topics = []) {
-  return arraysEqual(normalizeTopicList(topics), OREF_MQTT_DEFAULT_TOPICS);
 }
 
 export function resolveOrefMqttCityNames(citiesIds = "", cityIdToName = new Map()) {

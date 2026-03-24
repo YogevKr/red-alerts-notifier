@@ -22,9 +22,6 @@ const MAX_RECENT_SENT = 100;
 const CONFIGURABLE_SOURCE_NAMES = new Set(getConfigurableSourceNames());
 const DEFAULT_OREF_MQTT_TOPICS = [
   "com.alert.meserhadash",
-  "alerts",
-  "all",
-  "broadcast",
 ];
 
 function parseCsvValues(csv = "") {
@@ -38,11 +35,6 @@ function parseCsvValues(csv = "") {
 
 function parseCsvLowercaseValues(csv = "") {
   return parseCsvValues(csv).map((value) => value.toLowerCase());
-}
-
-function arraysEqual(left = [], right = []) {
-  return left.length === right.length
-    && left.every((value, index) => value === right[index]);
 }
 
 function resolveActiveSourceNames({
@@ -97,7 +89,6 @@ export function createPollerConfig(env = process.env) {
     ACTIVE_SOURCES = "",
     OREF_MQTT_ENABLED = "false",
     OREF_MQTT_RECONNECT_MS = "5000",
-    OREF_MQTT_TOPICS = DEFAULT_OREF_MQTT_TOPICS.join(","),
     OREF_MQTT_RAW_LOG_ENABLED = "false",
     OREF_MQTT_RAW_LOG_MAX_ENTRIES = "500",
     TZEVAADOM_ENABLED = "false",
@@ -150,9 +141,6 @@ export function createPollerConfig(env = process.env) {
     NOTIFIER_ACTIVE_TRANSPORTS,
     targetChatIds,
   );
-  const configuredOrefMqttTopics = parseCsvValues(OREF_MQTT_TOPICS);
-  const orefMqttTopicsExplicit = configuredOrefMqttTopics.length > 0
-    && !arraysEqual(configuredOrefMqttTopics, DEFAULT_OREF_MQTT_TOPICS);
   const orefMqttEnabled = parseBooleanEnv(OREF_MQTT_ENABLED);
   const orefMqttReconnectDelayMs = parsePositiveIntEnv(OREF_MQTT_RECONNECT_MS, 5000);
   const tzevaadomEnabled = parseBooleanEnv(TZEVAADOM_ENABLED);
@@ -212,8 +200,7 @@ export function createPollerConfig(env = process.env) {
     orefMqtt: {
       enabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT),
       reconnectDelayMs: orefMqttReconnectDelayMs,
-      topics: configuredOrefMqttTopics,
-      topicsExplicit: orefMqttTopicsExplicit,
+      topics: [...DEFAULT_OREF_MQTT_TOPICS],
       rawLogEnabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT)
         && parseBooleanEnv(OREF_MQTT_RAW_LOG_ENABLED),
       rawLogMaxEntries: parsePositiveIntEnv(OREF_MQTT_RAW_LOG_MAX_ENTRIES, 500),

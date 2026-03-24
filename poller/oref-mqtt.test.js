@@ -7,7 +7,6 @@ import {
   normalizeOrefMqttMessage,
   OrefMqttStream,
   registerOrefMqttDevice,
-  resolveOrefMqttTopicsForLocations,
   validateOrefMqttCredentials,
 } from "./oref-mqtt.js";
 import { OBSERVED_RAW_ALERTS } from "./test-fixtures/observed-raw-alerts.js";
@@ -78,21 +77,6 @@ describe("Pushy device payload", () => {
         sdk: 10117,
         androidId: "1234567890abcdef-Google-Android-SDK-built-for-x86_64",
       },
-    );
-  });
-});
-
-describe("resolveOrefMqttTopicsForLocations", () => {
-  it("derives area-segment topics from configured locations", () => {
-    assert.deepEqual(
-      resolveOrefMqttTopicsForLocations(
-        ["תל אביב - יפו", "רמת ישי"],
-        new Map([
-          ["1405", "תל אביב - יפו"],
-          ["1234", "רמת ישי"],
-        ]),
-      ),
-      ["5001405", "5001234"],
     );
   });
 });

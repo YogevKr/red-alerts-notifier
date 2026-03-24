@@ -9,7 +9,6 @@ import {
   fetchOrefCityMap,
   OrefMqttStream,
   OREF_MQTT_DEFAULT_TOPICS,
-  resolveOrefMqttTopicsForLocations,
   registerOrefMqttDevice,
   subscribeOrefMqttTopics,
   validateOrefMqttCredentials,
@@ -307,8 +306,6 @@ export function createOrefMqttSourceRuntime({
   enabled = false,
   reconnectDelayMs = 5000,
   topics = OREF_MQTT_DEFAULT_TOPICS,
-  topicsExplicit = false,
-  locations = [],
   credentialsPath = "",
   rawLogPath = "",
   rawLogEnabled = false,
@@ -328,9 +325,6 @@ export function createOrefMqttSourceRuntime({
   const configuredTopics = Array.isArray(topics) && topics.length > 0
     ? [...new Set(topics.map((topic) => String(topic || "").trim()).filter(Boolean))]
     : [...OREF_MQTT_DEFAULT_TOPICS];
-  const configuredLocations = Array.isArray(locations)
-    ? [...new Set(locations.map((location) => String(location || "").trim()).filter(Boolean))]
-    : [];
   const rawLogStore = new DebugCaptureStore({
     enabled: rawLogEnabled,
     filePath: rawLogPath,
@@ -348,8 +342,6 @@ export function createOrefMqttSourceRuntime({
     topicsSubscribedAt: null,
     topicsError: null,
     topics: configuredTopics,
-    topicsExplicit: Boolean(topicsExplicit),
-    configuredLocations,
     ...createRealtimeCounterState(enabled),
   };
   const stream = enabled
@@ -455,19 +447,6 @@ export function createOrefMqttSourceRuntime({
     ));
   }
 
-  function resolveTopics(cityMap = new Map()) {
-    if (state.topicsExplicit) {
-      state.topics = [...configuredTopics];
-      return;
-    }
-
-    state.topics = resolveOrefMqttTopicsForLocations(
-      state.configuredLocations,
-      cityMap,
-      configuredTopics.length > 0 ? configuredTopics : OREF_MQTT_DEFAULT_TOPICS,
-    );
-  }
-
   async function resolveCredentials({ timeoutMs } = {}) {
     const persisted = loadCredentials();
     if (persisted) {
@@ -523,13 +502,11 @@ export function createOrefMqttSourceRuntime({
       state.cityCount = cityMap.size;
       state.cityMapLoadedAt = toIsoString();
       state.cityMapError = null;
-      resolveTopics(cityMap);
       logger.info("oref_mqtt_city_map_ready", {
         city_count: cityMap.size,
       });
     } catch (err) {
       state.cityMapError = err.message;
-      resolveTopics();
       logger.warn("oref_mqtt_city_map_failed", {
         error: err,
       });
@@ -586,7 +563,6 @@ export function createOrefMqttSourceRuntime({
 export function createRealtimeSourceRuntimes({
   activeSources = [],
   sourceSettings = {},
-  locations = [],
   paths = {},
   logger = console,
   debugCaptureStores = {},
@@ -598,7 +574,6 @@ export function createRealtimeSourceRuntimes({
   const factoryMap = {
     [SOURCE_CHANNELS.OREF_MQTT]: () => createOrefMqttSourceRuntime({
       ...(sourceSettings.orefMqtt || {}),
-      locations,
       credentialsPath: paths.orefMqttCredentialsPath,
       rawLogPath: paths.orefMqttRawLogPath,
       logger,

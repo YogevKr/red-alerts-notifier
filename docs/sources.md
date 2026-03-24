@@ -20,7 +20,7 @@ Runtime behavior:
 Operational notes:
 
 - `ACTIVE_SOURCES` can enable multiple sources at once, for example `oref_alerts,oref_history,tzevaadom`
-- `oref_mqtt` derives per-area Pushy topics from `ALERT_LOCATIONS` when it can resolve them from `cities_heb.json`; `OREF_MQTT_TOPICS` remains available as a manual override/fallback
+- `oref_mqtt` subscribes only to the observed upstream topic `com.alert.meserhadash`; area filtering happens from `citiesIds` in the payload after receipt
 - `website-current`, `website-history`, and `history2` may still be geo-restricted outside Israel
 - `tzevaadom` can continue to provide coverage when official website endpoints fail
 - `/health` includes realtime counters for `tzevaadom`: `receivedCount`, `parsedCount`, `alertCount`, `parseErrorCount`, and last-seen timestamps

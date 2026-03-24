@@ -382,8 +382,7 @@ describe("createOrefMqttSourceRuntime", () => {
     let subscribedArgs = null;
     const runtime = createOrefMqttSourceRuntime({
       enabled: true,
-      topics: ["com.alert.meserhadash", "alerts"],
-      topicsExplicit: true,
+      topics: ["com.alert.meserhadash"],
       rawLogEnabled: false,
       rawLogPath: join(dir, "raw-log.json"),
       credentialsPath,
@@ -449,65 +448,11 @@ describe("createOrefMqttSourceRuntime", () => {
     assert.deepEqual(subscribedArgs, {
       token: "persisted-token",
       auth: "persisted-auth",
-      topics: ["com.alert.meserhadash", "alerts"],
+      topics: ["com.alert.meserhadash"],
       timeoutMs: 4321,
     });
     assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_credentials_reused"));
     assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_topics_subscribed"));
     assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_stream_started"));
-  });
-
-  it("derives area topics from configured locations when custom topics are not explicit", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "oref-mqtt-runtime-topics-"));
-    let subscribedArgs = null;
-    const runtime = createOrefMqttSourceRuntime({
-      enabled: true,
-      topics: ["com.alert.meserhadash", "alerts", "all", "broadcast"],
-      topicsExplicit: false,
-      locations: ["תל אביב - יפו"],
-      rawLogEnabled: false,
-      rawLogPath: join(dir, "raw-log.json"),
-      credentialsPath: join(dir, "creds.json"),
-      createStream: () => ({
-        status: () => ({
-          connected: true,
-          queued: 0,
-          receivedCount: 0,
-          parsedCount: 0,
-          alertCount: 0,
-          parseErrorCount: 0,
-          lastConnectionError: null,
-          lastParseError: null,
-        }),
-        setAlertHandler() {},
-        start() {},
-        setCityMap() {},
-        setCredentials() {},
-      }),
-      fetchCityMap: async () => new Map([
-        ["1405", "תל אביב - יפו"],
-        ["1234", "רמת ישי"],
-      ]),
-      validateCredentials: async () => ({ valid: true, blocked: false }),
-      registerDevice: async () => ({
-        token: "device-token",
-        auth: "device-auth",
-        androidId: "android-id",
-      }),
-      subscribeTopics: async (options) => {
-        subscribedArgs = options;
-      },
-      logger: { info() {}, warn() {} },
-    });
-
-    await runtime.start({ timeoutMs: 1111 });
-
-    assert.deepEqual(subscribedArgs, {
-      token: "device-token",
-      auth: "device-auth",
-      topics: ["5001405"],
-      timeoutMs: 1111,
-    });
-    assert.deepEqual(runtime.getRealtimeSourcesSnapshot().oref_mqtt.topics, ["5001405"]);
   });
 });
