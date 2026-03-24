@@ -9,10 +9,14 @@ describe("createPollerConfig", () => {
       WHATSAPP_TARGETS: "telegram:1,972500000000",
       TEST_NOTIFICATION_TARGETS: "telegram:9",
       NOTIFIER_ACTIVE_TRANSPORTS: "",
-      ACTIVE_SOURCES: "oref_history,tzevaadom",
+      ACTIVE_SOURCES: "oref_history,oref_mqtt",
+      OREF_MQTT_ENABLED: "true",
+      OREF_MQTT_TOPICS: "com.alert.meserhadash,alerts",
+      OREF_MQTT_RAW_LOG_ENABLED: "true",
       OREF_ALERTS_POLL_INTERVAL_MS: "1000",
       OREF_HISTORY_POLL_INTERVAL_MS: "5000",
       POLL_INTERVAL_MS: "2000",
+      TZEVAADOM_ENABLED: "true",
       TZEVAADOM_RAW_LOG_ENABLED: "true",
     });
 
@@ -20,10 +24,29 @@ describe("createPollerConfig", () => {
     assert.deepEqual(config.targetChatIds, ["telegram:1", "972500000000"]);
     assert.deepEqual(config.testChatIds, ["telegram:9"]);
     assert.deepEqual(config.configuredNotifierTransports, ["telegram", "whatsapp"]);
-    assert.deepEqual(config.sources.activeNames, ["oref_history", "tzevaadom"]);
+    assert.deepEqual(config.sources.activeNames, ["oref_history", "oref_mqtt"]);
     assert.deepEqual(config.sources.polledNames, ["oref_history"]);
-    assert.deepEqual(config.sources.realtimeNames, ["tzevaadom"]);
+    assert.deepEqual(config.sources.realtimeNames, ["oref_mqtt"]);
     assert.equal(config.timing.pollTickIntervalMs, 5000);
-    assert.equal(config.tzevaadom.rawLogEnabled, true);
+    assert.equal(config.orefMqtt.enabled, true);
+    assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
+    assert.equal(config.orefMqtt.rawLogEnabled, true);
+    assert.equal(config.tzevaadom.enabled, false);
+    assert.equal(config.tzevaadom.rawLogEnabled, false);
+  });
+
+  it("falls back to legacy enabled source flags when ACTIVE_SOURCES is unset", () => {
+    const config = createPollerConfig({
+      WHATSAPP_TARGETS: "telegram:1",
+      TZEVAADOM_ENABLED: "true",
+      OREF_MQTT_ENABLED: "true",
+    });
+
+    assert.deepEqual(config.sources.activeNames, [
+      "oref_alerts",
+      "oref_history",
+      "oref_mqtt",
+      "tzevaadom",
+    ]);
   });
 });

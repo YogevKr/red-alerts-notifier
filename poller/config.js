@@ -20,6 +20,12 @@ const MAX_SEEN_SOURCE_ALERTS = 50000;
 const SEEN_SOURCE_ALERT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_RECENT_SENT = 100;
 const CONFIGURABLE_SOURCE_NAMES = new Set(getConfigurableSourceNames());
+const DEFAULT_OREF_MQTT_TOPICS = [
+  "com.alert.meserhadash",
+  "alerts",
+  "all",
+  "broadcast",
+];
 
 function parseCsvValues(csv = "") {
   return [...new Set(
@@ -36,10 +42,16 @@ function parseCsvLowercaseValues(csv = "") {
 
 function resolveActiveSourceNames({
   activeSourcesCsv = "",
+  orefMqttEnabled = false,
+  tzevaadomEnabled = false,
 } = {}) {
   return resolveConfiguredActiveSourceNames({
     explicitNames: parseCsvLowercaseValues(activeSourcesCsv)
       .filter((name) => CONFIGURABLE_SOURCE_NAMES.has(name)),
+    legacyEnabledNames: [
+      ...(orefMqttEnabled ? [SOURCE_CHANNELS.OREF_MQTT] : []),
+      ...(tzevaadomEnabled ? [SOURCE_CHANNELS.TZEVAADOM] : []),
+    ],
   });
 }
 
@@ -78,6 +90,12 @@ export function createPollerConfig(env = process.env) {
     TEST_NOTIFICATION_TARGETS = "",
     NOTIFIER_ACTIVE_TRANSPORTS = "",
     ACTIVE_SOURCES = "",
+    OREF_MQTT_ENABLED = "false",
+    OREF_MQTT_RECONNECT_MS = "5000",
+    OREF_MQTT_TOPICS = DEFAULT_OREF_MQTT_TOPICS.join(","),
+    OREF_MQTT_RAW_LOG_ENABLED = "false",
+    OREF_MQTT_RAW_LOG_MAX_ENTRIES = "500",
+    TZEVAADOM_ENABLED = "false",
     TZEVAADOM_RECONNECT_MS = "5000",
     TZEVAADOM_RAW_LOG_ENABLED = "false",
     TZEVAADOM_RAW_LOG_MAX_ENTRIES = "500",
@@ -127,9 +145,14 @@ export function createPollerConfig(env = process.env) {
     NOTIFIER_ACTIVE_TRANSPORTS,
     targetChatIds,
   );
+  const orefMqttEnabled = parseBooleanEnv(OREF_MQTT_ENABLED);
+  const orefMqttReconnectDelayMs = parsePositiveIntEnv(OREF_MQTT_RECONNECT_MS, 5000);
+  const tzevaadomEnabled = parseBooleanEnv(TZEVAADOM_ENABLED);
   const tzevaadomReconnectDelayMs = parsePositiveIntEnv(TZEVAADOM_RECONNECT_MS, 5000);
   const activeSourceNames = resolveActiveSourceNames({
     activeSourcesCsv: ACTIVE_SOURCES,
+    orefMqttEnabled,
+    tzevaadomEnabled,
   });
   const activeSourceNameSet = new Set(activeSourceNames);
   const sourceGroups = buildSourceGroups(activeSourceNames);
@@ -178,6 +201,14 @@ export function createPollerConfig(env = process.env) {
         : 24,
       maxEntries: parseInt(DEBUG_CAPTURE_MAX_ENTRIES, 10) || 1000,
     },
+    orefMqtt: {
+      enabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT),
+      reconnectDelayMs: orefMqttReconnectDelayMs,
+      topics: parseCsvValues(OREF_MQTT_TOPICS),
+      rawLogEnabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT)
+        && parseBooleanEnv(OREF_MQTT_RAW_LOG_ENABLED),
+      rawLogMaxEntries: parsePositiveIntEnv(OREF_MQTT_RAW_LOG_MAX_ENTRIES, 500),
+    },
     tzevaadom: {
       enabled: activeSourceNameSet.has(SOURCE_CHANNELS.TZEVAADOM),
       reconnectDelayMs: tzevaadomReconnectDelayMs,
@@ -211,6 +242,8 @@ export function createPollerConfig(env = process.env) {
       recentSentStorePath: join(appDir, "data", "recent-sent.json"),
       recentAlertFlowStorePath: join(appDir, "data", "recent-alert-flow.json"),
       notifierDeliveryStorePath: join(appDir, "data", "notifier-deliveries.json"),
+      orefMqttCredentialsPath: join(appDir, "data", "oref-mqtt-credentials.json"),
+      orefMqttRawLogPath: join(appDir, "data", "oref-mqtt-raw-log.json"),
       tzevaadomRawLogPath: join(appDir, "data", "tzevaadom-raw-log.json"),
     },
     limits: {

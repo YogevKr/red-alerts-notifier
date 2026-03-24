@@ -72,6 +72,38 @@ export const OBSERVED_RAW_ALERTS = {
       data: "תל אביב - יפו",
     },
   },
+  orefMqtt: {
+    preAlert: {
+      title: "בדקות הקרובות צפויות להתקבל התרעות באזורך",
+      desc: "היכנסו למרחב המוגן",
+      citiesIds: "5001405",
+      id: "19442819",
+      msgId: "19442818",
+      alertTitle: "התרעה מוקדמת",
+      threatId: "7",
+      time: "2026-03-24T12:48:42+0200",
+    },
+    rocketAlert: {
+      title: "ירי רקטות וטילים",
+      desc: "היכנסו למרחב המוגן",
+      citiesIds: "5001405,5001234",
+      id: "19443001",
+      msgId: "19443000",
+      alertTitle: "ירי רקטות וטילים",
+      threatId: "0",
+      time: "2026-03-24T12:49:07+0200",
+    },
+    allClear: {
+      title: "האירוע הסתיים",
+      desc: "השוהים במרחב המוגן יכולים לצאת",
+      citiesIds: "5001405",
+      id: "19443111",
+      msgId: "19443110",
+      alertTitle: "האירוע הסתיים",
+      threatId: "8",
+      time: "2026-03-24T12:50:10+0200",
+    },
+  },
   tzevaadom: {
     systemPreAlert: {
       type: "SYSTEM_MESSAGE",

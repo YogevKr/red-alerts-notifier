@@ -1,8 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildRealtimeSourcesSnapshot,
   collectRealtimeSourceResults,
+  createOrefMqttSourceRuntime,
   createRealtimeSourceRuntimes,
   createSourceConfigs,
   createTzevaadomSourceRuntime,
@@ -14,7 +18,7 @@ describe("createSourceConfigs", () => {
   it("returns only active polled sources", () => {
     assert.deepEqual(
       createSourceConfigs({
-        activeSources: ["oref_history", "tzevaadom"],
+        activeSources: ["oref_history", "oref_mqtt"],
         orefAlertsPollIntervalMs: 1000,
         orefHistoryPollIntervalMs: 5000,
       }).map((source) => source.name),
@@ -27,8 +31,22 @@ describe("realtime source runtime helpers", () => {
   it("creates and orchestrates only active realtime sources", async () => {
     const calls = [];
     const runtimes = createRealtimeSourceRuntimes({
-      activeSources: ["oref_alerts", "tzevaadom"],
+      activeSources: ["oref_alerts", "oref_mqtt", "tzevaadom"],
       runtimeFactories: {
+        oref_mqtt: () => ({
+          setAlertHandler(handler) {
+            calls.push(["handler", "oref_mqtt", typeof handler]);
+          },
+          getRealtimeSourcesSnapshot() {
+            return { oref_mqtt: { enabled: true, connected: true, receivedCount: 1 } };
+          },
+          async collectRealtimeSourceResults() {
+            return { oref_mqtt: { ok: true, count: 1 } };
+          },
+          async start(options) {
+            calls.push(["start", "oref_mqtt", options.timeoutMs]);
+          },
+        }),
         tzevaadom: () => ({
           setAlertHandler(handler) {
             calls.push(["handler", "tzevaadom", typeof handler]);
@@ -46,17 +64,21 @@ describe("realtime source runtime helpers", () => {
       },
     });
 
-    assert.deepEqual(Object.keys(runtimes), ["tzevaadom"]);
+    assert.deepEqual(Object.keys(runtimes), ["oref_mqtt", "tzevaadom"]);
     setRealtimeAlertHandler(runtimes, () => {});
     await startRealtimeSources(runtimes, { timeoutMs: 1234 });
     assert.deepEqual(buildRealtimeSourcesSnapshot(runtimes), {
+      oref_mqtt: { enabled: true, connected: true, receivedCount: 1 },
       tzevaadom: { enabled: true, connected: false, receivedCount: 0 },
     });
     assert.deepEqual(await collectRealtimeSourceResults(runtimes), {
+      oref_mqtt: { ok: true, count: 1 },
       tzevaadom: { ok: false, count: 0 },
     });
     assert.deepEqual(calls, [
+      ["handler", "oref_mqtt", "function"],
       ["handler", "tzevaadom", "function"],
+      ["start", "oref_mqtt", 1234],
       ["start", "tzevaadom", 1234],
     ]);
   });
@@ -279,5 +301,156 @@ describe("createTzevaadomSourceRuntime", () => {
       },
     ]);
     assert.ok(healthEvents.every((event) => typeof event.checkedAt === "string" && event.checkedAt));
+  });
+});
+
+describe("createOrefMqttSourceRuntime", () => {
+  it("reports realtime deltas between polls", async () => {
+    const statuses = [
+      {
+        connected: true,
+        queued: 0,
+        receivedCount: 1,
+        parsedCount: 1,
+        alertCount: 1,
+        parseErrorCount: 0,
+        lastConnectionError: null,
+        lastParseError: null,
+      },
+      {
+        connected: true,
+        queued: 0,
+        receivedCount: 4,
+        parsedCount: 3,
+        alertCount: 2,
+        parseErrorCount: 1,
+        lastConnectionError: null,
+        lastParseError: "bad payload",
+      },
+    ];
+    const runtime = createOrefMqttSourceRuntime({
+      enabled: true,
+      rawLogEnabled: false,
+      rawLogPath: "/tmp/oref-mqtt-source-runtime-test.json",
+      credentialsPath: "/tmp/oref-mqtt-credentials-runtime-test.json",
+      debugCaptureStores: {},
+      captureEntriesBySource() {},
+      createStream: () => ({
+        status: () => statuses.shift() || statuses[0],
+        setAlertHandler() {},
+        start() {},
+        setCityMap() {},
+        setCredentials() {},
+      }),
+      logger: { info() {}, warn() {} },
+    });
+
+    const first = await runtime.collectRealtimeSourceResults();
+    const second = await runtime.collectRealtimeSourceResults();
+
+    assert.deepEqual(first.oref_mqtt, {
+      ok: true,
+      error: null,
+      count: 1,
+      rawCount: 0,
+      queued: 0,
+      receivedCount: 1,
+      parsedCount: 1,
+      alertCount: 1,
+      parseErrorCount: 0,
+    });
+    assert.deepEqual(second.oref_mqtt, {
+      ok: true,
+      error: null,
+      count: 1,
+      rawCount: 0,
+      queued: 0,
+      receivedCount: 3,
+      parsedCount: 2,
+      alertCount: 1,
+      parseErrorCount: 1,
+    });
+  });
+
+  it("reuses valid credentials, subscribes topics, and starts the stream", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oref-mqtt-runtime-"));
+    const credentialsPath = join(dir, "creds.json");
+    const infoCalls = [];
+    let setCityMapArg = null;
+    let setCredentialsArg = null;
+    let started = false;
+    let subscribedArgs = null;
+    const runtime = createOrefMqttSourceRuntime({
+      enabled: true,
+      topics: ["com.alert.meserhadash", "alerts"],
+      rawLogEnabled: false,
+      rawLogPath: join(dir, "raw-log.json"),
+      credentialsPath,
+      createStream: () => ({
+        status: () => ({
+          connected: true,
+          queued: 0,
+          receivedCount: 0,
+          parsedCount: 0,
+          alertCount: 0,
+          parseErrorCount: 0,
+          lastConnectionError: null,
+          lastParseError: null,
+        }),
+        setAlertHandler() {},
+        start() {
+          started = true;
+        },
+        setCityMap(cityMap) {
+          setCityMapArg = cityMap;
+        },
+        setCredentials(credentials) {
+          setCredentialsArg = credentials;
+        },
+      }),
+      fetchCityMap: async () => new Map([["1405", "תל אביב - יפו"]]),
+      validateCredentials: async () => ({ valid: true, blocked: true }),
+      registerDevice: async () => {
+        throw new Error("register should not be called");
+      },
+      subscribeTopics: async (options) => {
+        subscribedArgs = options;
+      },
+      logger: {
+        info(event, payload) {
+          infoCalls.push({ event, payload });
+        },
+        warn() {},
+      },
+    });
+
+    writeFileSync(credentialsPath, JSON.stringify({
+      token: "persisted-token",
+      auth: "persisted-auth",
+    }), "utf8");
+
+    await runtime.start({ timeoutMs: 4321 });
+
+    const snapshot = runtime.getRealtimeSourcesSnapshot();
+    assert.equal(started, true);
+    assert.ok(setCityMapArg instanceof Map);
+    assert.deepEqual(setCredentialsArg, {
+      token: "persisted-token",
+      auth: "persisted-auth",
+    });
+    assert.equal(snapshot.oref_mqtt.cityCount, 1);
+    assert.equal(snapshot.oref_mqtt.credentialsBlocked, true);
+    assert.equal(snapshot.oref_mqtt.credentialsError, null);
+    assert.ok(snapshot.oref_mqtt.credentialsLoadedAt);
+    assert.ok(snapshot.oref_mqtt.topicsSubscribedAt);
+    assert.deepEqual(subscribedArgs, {
+      token: "persisted-token",
+      auth: "persisted-auth",
+      topics: ["com.alert.meserhadash", "alerts"],
+      timeoutMs: 4321,
+    });
+    assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_credentials_reused"));
+    assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_topics_subscribed"));
+    assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_stream_started"));
   });
 });

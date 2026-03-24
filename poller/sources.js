@@ -4,6 +4,7 @@ export const SOURCE_CHANNELS = {
   OREF_ALERTS: "oref_alerts",
   OREF_HISTORY: "oref_history",
   OREF_HISTORY2: "oref_history2",
+  OREF_MQTT: "oref_mqtt",
   TZEVAADOM: "tzevaadom",
 };
 

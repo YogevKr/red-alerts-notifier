@@ -1,13 +1,42 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { DebugCaptureStore } from "./debug-capture.js";
 import {
   buildSourceGroups,
   createPolledSourceConfigs,
 } from "./source-registry.js";
 import {
+  fetchOrefCityMap,
+  OrefMqttStream,
+  OREF_MQTT_DEFAULT_TOPICS,
+  registerOrefMqttDevice,
+  subscribeOrefMqttTopics,
+  validateOrefMqttCredentials,
+} from "./oref-mqtt.js";
+import {
   SOURCE_CHANNELS,
   fetchTzevaadomCityMap,
   TzevaadomStream,
 } from "./sources.js";
+
+function loadJson(filePath, fallback, label, logger = console) {
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (err) {
+    if (err?.code !== "ENOENT") {
+      logger.warn(`${label}_load_failed`, {
+        file_path: filePath,
+        error: err,
+      });
+    }
+    return fallback;
+  }
+}
+
+function persistJson(filePath, value) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
+}
 
 function createRealtimeCounterState(enabled = false) {
   return {
@@ -273,6 +302,254 @@ export function createTzevaadomSourceRuntime({
   };
 }
 
+export function createOrefMqttSourceRuntime({
+  enabled = false,
+  reconnectDelayMs = 5000,
+  topics = OREF_MQTT_DEFAULT_TOPICS,
+  credentialsPath = "",
+  rawLogPath = "",
+  rawLogEnabled = false,
+  rawLogMaxEntries = 500,
+  logger = console,
+  debugCaptureStores = {},
+  captureEntriesBySource = () => [],
+  toIsoString = (timestampMs = Date.now()) => new Date(timestampMs).toISOString(),
+  createStream = (options) => new OrefMqttStream(options),
+  fetchCityMap = fetchOrefCityMap,
+  registerDevice = registerOrefMqttDevice,
+  validateCredentials = validateOrefMqttCredentials,
+  subscribeTopics = subscribeOrefMqttTopics,
+  onHealthChange = null,
+} = {}) {
+  const source = SOURCE_CHANNELS.OREF_MQTT;
+  const normalizedTopics = Array.isArray(topics) && topics.length > 0
+    ? [...new Set(topics.map((topic) => String(topic || "").trim()).filter(Boolean))]
+    : [...OREF_MQTT_DEFAULT_TOPICS];
+  const rawLogStore = new DebugCaptureStore({
+    enabled: rawLogEnabled,
+    filePath: rawLogPath,
+    ttlHours: 0,
+    maxEntries: rawLogMaxEntries,
+    logger,
+  });
+  const state = {
+    cityMapLoadedAt: null,
+    cityMapError: null,
+    cityCount: 0,
+    credentialsLoadedAt: null,
+    credentialsError: null,
+    credentialsBlocked: false,
+    topicsSubscribedAt: null,
+    topicsError: null,
+    topics: normalizedTopics,
+    ...createRealtimeCounterState(enabled),
+  };
+  const stream = enabled
+    ? createStream({
+      logger: createRealtimeStreamLogger(source, logger),
+      reconnectDelayMs,
+      queueAlerts: false,
+      onRawMessage: (message) => {
+        captureRealtimeEntries(source, [{
+          kind: "mqtt_raw",
+          source,
+          matchedLocations: [],
+          payload: message,
+        }], {
+          rawLogStore,
+          debugCaptureStores,
+          captureEntriesBySource,
+        });
+      },
+      onParseError: (message) => {
+        captureRealtimeEntries(source, [{
+          kind: "mqtt_parse_error",
+          source,
+          matchedLocations: [],
+          payload: message,
+        }], {
+          rawLogStore,
+          debugCaptureStores,
+          captureEntriesBySource,
+        });
+      },
+      onConnectionStateChange: (status) => {
+        notifyRealtimeHealthChange({
+          source,
+          status,
+          disconnectedError: "mqtt disconnected",
+          onHealthChange,
+          toIsoString,
+          logger,
+        });
+      },
+    })
+    : null;
+
+  function getRealtimeSourcesSnapshot() {
+    if (!enabled || !stream) return {};
+
+    return {
+      [source]: {
+        enabled: true,
+        reconnectDelayMs,
+        topics: [...state.topics],
+        cityMapLoadedAt: state.cityMapLoadedAt,
+        cityMapError: state.cityMapError,
+        cityCount: state.cityCount,
+        credentialsLoadedAt: state.credentialsLoadedAt,
+        credentialsError: state.credentialsError,
+        credentialsBlocked: state.credentialsBlocked,
+        topicsSubscribedAt: state.topicsSubscribedAt,
+        topicsError: state.topicsError,
+        rawLog: rawLogStore.status(),
+        ...stream.status(),
+      },
+    };
+  }
+
+  async function collectRealtimeSourceResults() {
+    if (!enabled || !stream) return {};
+
+    return {
+      [source]: buildRealtimeSourceResult(
+        stream.status(),
+        state,
+        "mqtt disconnected",
+      ),
+    };
+  }
+
+  function setAlertHandler(onAlert) {
+    stream?.setAlertHandler(onAlert, { queueAlerts: false });
+  }
+
+  function loadCredentials() {
+    const parsed = loadJson(credentialsPath, {}, "oref_mqtt_credentials", logger);
+    const token = String(parsed?.token || "").trim();
+    const auth = String(parsed?.auth || "").trim();
+    return token && auth ? { token, auth } : null;
+  }
+
+  function persistCredentials(credentials = {}) {
+    persistJson(credentialsPath, {
+      token: String(credentials.token || "").trim(),
+      auth: String(credentials.auth || "").trim(),
+    });
+  }
+
+  async function resolveCredentials({ timeoutMs } = {}) {
+    const persisted = loadCredentials();
+    if (persisted) {
+      const validation = await validateCredentials({
+        ...persisted,
+        timeoutMs,
+      });
+      state.credentialsBlocked = Boolean(validation.blocked);
+      if (validation.valid) {
+        state.credentialsLoadedAt = toIsoString();
+        state.credentialsError = null;
+        logger.info("oref_mqtt_credentials_reused", {
+          blocked: state.credentialsBlocked,
+        });
+        return persisted;
+      }
+
+      state.credentialsError = validation.error || "persisted credentials invalid";
+      logger.warn("oref_mqtt_credentials_invalid", {
+        error: state.credentialsError,
+      });
+    }
+
+    const credentials = await registerDevice({ timeoutMs });
+    persistCredentials(credentials);
+    state.credentialsLoadedAt = toIsoString();
+    state.credentialsError = null;
+    state.credentialsBlocked = false;
+    logger.info("oref_mqtt_credentials_registered");
+    return credentials;
+  }
+
+  function reportStartupFailure(error) {
+    notifyRealtimeHealthChange({
+      source,
+      status: {
+        connected: false,
+        lastConnectionError: error,
+      },
+      disconnectedError: "mqtt disconnected",
+      onHealthChange,
+      toIsoString,
+      logger,
+    });
+  }
+
+  async function start({ timeoutMs } = {}) {
+    if (!enabled || !stream) return;
+
+    try {
+      const cityMap = await fetchCityMap({ timeoutMs });
+      stream.setCityMap(cityMap);
+      state.cityCount = cityMap.size;
+      state.cityMapLoadedAt = toIsoString();
+      state.cityMapError = null;
+      logger.info("oref_mqtt_city_map_ready", {
+        city_count: cityMap.size,
+      });
+    } catch (err) {
+      state.cityMapError = err.message;
+      logger.warn("oref_mqtt_city_map_failed", {
+        error: err,
+      });
+    }
+
+    let credentials = null;
+    try {
+      credentials = await resolveCredentials({ timeoutMs });
+      stream.setCredentials(credentials);
+    } catch (err) {
+      state.credentialsError = err.message;
+      logger.warn("oref_mqtt_credentials_failed", {
+        error: err,
+      });
+      reportStartupFailure(err.message);
+      return;
+    }
+
+    try {
+      await subscribeTopics({
+        ...credentials,
+        topics: state.topics,
+        timeoutMs,
+      });
+      state.topicsSubscribedAt = toIsoString();
+      state.topicsError = null;
+      logger.info("oref_mqtt_topics_subscribed", {
+        topics_count: state.topics.length,
+      });
+    } catch (err) {
+      state.topicsError = err.message;
+      logger.warn("oref_mqtt_topics_subscribe_failed", {
+        topics_count: state.topics.length,
+        error: err,
+      });
+    }
+
+    stream.start();
+    logger.info("oref_mqtt_stream_started", {
+      reconnect_delay_ms: reconnectDelayMs,
+      topics_count: state.topics.length,
+    });
+  }
+
+  return {
+    setAlertHandler,
+    getRealtimeSourcesSnapshot,
+    collectRealtimeSourceResults,
+    start,
+  };
+}
+
 export function createRealtimeSourceRuntimes({
   activeSources = [],
   sourceSettings = {},
@@ -285,6 +562,16 @@ export function createRealtimeSourceRuntimes({
   runtimeFactories = {},
 } = {}) {
   const factoryMap = {
+    [SOURCE_CHANNELS.OREF_MQTT]: () => createOrefMqttSourceRuntime({
+      ...(sourceSettings.orefMqtt || {}),
+      credentialsPath: paths.orefMqttCredentialsPath,
+      rawLogPath: paths.orefMqttRawLogPath,
+      logger,
+      debugCaptureStores,
+      captureEntriesBySource,
+      toIsoString,
+      onHealthChange,
+    }),
     [SOURCE_CHANNELS.TZEVAADOM]: () => createTzevaadomSourceRuntime({
       ...(sourceSettings.tzevaadom || {}),
       rawLogPath: paths.tzevaadomRawLogPath,

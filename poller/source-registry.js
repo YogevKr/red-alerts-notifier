@@ -29,6 +29,12 @@ export const SOURCE_REGISTRY = {
     rawExtractor: extractWebsiteHistoryRawRecords,
     resolvePollIntervalMs: ({ orefHistoryPollIntervalMs }) => orefHistoryPollIntervalMs,
   },
+  [SOURCE_CHANNELS.OREF_MQTT]: {
+    name: SOURCE_CHANNELS.OREF_MQTT,
+    kind: "realtime",
+    defaultActive: false,
+    monitored: true,
+  },
   [SOURCE_CHANNELS.TZEVAADOM]: {
     name: SOURCE_CHANNELS.TZEVAADOM,
     kind: "realtime",

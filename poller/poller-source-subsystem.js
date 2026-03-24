@@ -20,6 +20,7 @@ export function createPollerSourceSubsystem({
   timing = {},
   debugCapture = {},
   delivery = {},
+  orefMqtt = {},
   tzevaadom = {},
   paths = {},
   limits = {},
@@ -78,6 +79,7 @@ export function createPollerSourceSubsystem({
   const realtimeSourceRuntimes = createRealtimeSourceRuntimes({
     activeSources: sources.activeNames,
     sourceSettings: {
+      orefMqtt,
       tzevaadom,
     },
     paths,

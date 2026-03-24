@@ -27,6 +27,7 @@ COPY poller-health-subsystem.js .
 COPY poller-source-subsystem.js .
 COPY source-runtime.js .
 COPY source-registry.js .
+COPY oref-mqtt.js .
 COPY http-server.js .
 COPY pagerduty-runtime.js .
 COPY poll-runtime.js .
