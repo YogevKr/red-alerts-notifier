@@ -91,6 +91,7 @@ export function createPollerConfig(env = process.env) {
     ACTIVE_SOURCES = "",
     OREF_MQTT_ENABLED = "false",
     OREF_MQTT_RECONNECT_MS = "5000",
+    OREF_MQTT_TOPICS = "",
     OREF_MQTT_RAW_LOG_ENABLED = "false",
     OREF_MQTT_RAW_LOG_MAX_ENTRIES = "500",
     TZEVAADOM_ENABLED = "false",
@@ -148,6 +149,7 @@ export function createPollerConfig(env = process.env) {
   });
   const orefMqttEnabled = parseBooleanEnv(OREF_MQTT_ENABLED);
   const orefMqttReconnectDelayMs = parsePositiveIntEnv(OREF_MQTT_RECONNECT_MS, 5000);
+  const configuredOrefMqttTopics = parseCsvValues(OREF_MQTT_TOPICS);
   const tzevaadomEnabled = parseBooleanEnv(TZEVAADOM_ENABLED);
   const tzevaadomReconnectDelayMs = parsePositiveIntEnv(TZEVAADOM_RECONNECT_MS, 5000);
   const activeSourceNames = resolveActiveSourceNames({
@@ -208,7 +210,9 @@ export function createPollerConfig(env = process.env) {
     orefMqtt: {
       enabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT),
       reconnectDelayMs: orefMqttReconnectDelayMs,
-      topics: [...DEFAULT_OREF_MQTT_TOPICS],
+      topics: configuredOrefMqttTopics.length > 0
+        ? configuredOrefMqttTopics
+        : [...DEFAULT_OREF_MQTT_TOPICS],
       rawLogEnabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT)
         && parseBooleanEnv(OREF_MQTT_RAW_LOG_ENABLED),
       rawLogMaxEntries: parsePositiveIntEnv(OREF_MQTT_RAW_LOG_MAX_ENTRIES, 500),

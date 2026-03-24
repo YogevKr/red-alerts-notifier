@@ -11,6 +11,7 @@ describe("createPollerConfig", () => {
       NOTIFIER_ACTIVE_TRANSPORTS: "",
       ACTIVE_SOURCES: "oref_history,oref_mqtt",
       OREF_MQTT_ENABLED: "true",
+      OREF_MQTT_TOPICS: "com.alert.meserhadash,alerts",
       OREF_MQTT_RAW_LOG_ENABLED: "true",
       OREF_ALERTS_POLL_INTERVAL_MS: "1000",
       OREF_HISTORY_POLL_INTERVAL_MS: "5000",
@@ -29,7 +30,7 @@ describe("createPollerConfig", () => {
     assert.deepEqual(config.sources.realtimeNames, ["oref_mqtt"]);
     assert.equal(config.timing.pollTickIntervalMs, 5000);
     assert.equal(config.orefMqtt.enabled, true);
-    assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash"]);
+    assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
     assert.equal(config.orefMqtt.rawLogEnabled, true);
     assert.equal(config.tzevaadom.enabled, false);
     assert.equal(config.tzevaadom.rawLogEnabled, false);
@@ -40,6 +41,7 @@ describe("createPollerConfig", () => {
       WHATSAPP_TARGETS: "telegram:1",
       TZEVAADOM_ENABLED: "true",
       OREF_MQTT_ENABLED: "true",
+      OREF_MQTT_TOPICS: "com.alert.meserhadash,alerts",
       POLLER_DATABASE_URL: "postgresql://postgres:postgres@db:5432/red_alerts",
     });
 
@@ -50,6 +52,6 @@ describe("createPollerConfig", () => {
       "oref_mqtt",
       "tzevaadom",
     ]);
-    assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash"]);
+    assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
   });
 });
