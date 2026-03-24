@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -274,5 +274,41 @@ describe("PagerDutyIncidentManager", () => {
       dedupKey: "poll-loop-error",
       status: "triggered",
     });
+  });
+
+  it("prunes deprecated incident keys from persisted state on load", () => {
+    const filePath = makeTempFile("pagerduty.json");
+    writeFileSync(filePath, JSON.stringify([
+      {
+        dedupKey: "mqtt-credentials-blocked",
+        status: "resolved",
+        lastEventAt: "2026-03-24T17:37:58.486Z",
+      },
+      {
+        dedupKey: "db-unavailable",
+        status: "resolved",
+        lastEventAt: "2026-03-18T17:16:49.635Z",
+      },
+    ]), "utf8");
+
+    const manager = new PagerDutyIncidentManager({
+      routingKey: "routing-key",
+      filePath,
+      fetchImpl: async () => {
+        throw new Error("fetch should not be called");
+      },
+      logger: { log() {}, warn() {} },
+    });
+
+    assert.deepEqual(manager.status().incidents, [{
+      dedupKey: "db-unavailable",
+      status: "resolved",
+      lastEventAt: "2026-03-18T17:16:49.635Z",
+    }]);
+    assert.deepEqual(JSON.parse(readFileSync(filePath, "utf8")), [{
+      dedupKey: "db-unavailable",
+      status: "resolved",
+      lastEventAt: "2026-03-18T17:16:49.635Z",
+    }]);
   });
 });

@@ -25,6 +25,7 @@ COPY notifier-target.js .
 COPY poller-app.js .
 COPY poller-health-subsystem.js .
 COPY poller-source-subsystem.js .
+COPY alert-sinks.js .
 COPY source-runtime.js .
 COPY source-registry.js .
 COPY oref-mqtt.js .
@@ -41,8 +42,12 @@ COPY debug-capture.js .
 COPY log.js .
 COPY pagerduty.js .
 COPY lib.js .
+COPY customization-paths.js .
+COPY message-assets.js .
 COPY telegram.js .
 COPY message-templates.js .
+COPY message-templates.defaults.js .
 COPY sources.js .
 COPY assets ./assets
+COPY overrides ./overrides
 CMD ["node", "index.js"]

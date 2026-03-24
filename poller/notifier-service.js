@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { appDir } from "./customization-paths.js";
 import { DeliveryDedupeGate } from "./delivery-dedupe.js";
 import {
   buildDeliveryKey,
@@ -9,18 +9,16 @@ import {
   chooseEvolutionInstance,
   detectEventType,
   formatMessage,
-  getConfiguredMediaBaseNames,
   getConnectionState,
   getInstances,
-  getMediaAssetMimeType,
   hashDeliveryKey,
   normalizeChatTarget,
   resolveEventType,
-  resolveMediaAssetFilename,
   resolveMessageMediaBaseName,
   shouldFallbackToText,
 } from "./lib.js";
 import { parseNotifierTarget } from "./notifier-target.js";
+import { loadConfiguredEventMedia } from "./message-assets.js";
 import {
   formatTelegramError,
   isTelegramTransientError,
@@ -33,9 +31,6 @@ const DEFAULT_EVOLUTION_URL = "http://evolution-api:8080";
 const DEFAULT_EVOLUTION_TIMEOUT_MS = 10_000;
 const DEFAULT_TELEGRAM_TIMEOUT_MS = 15_000;
 const MAX_RECENT_SENT = 100;
-const appDir = dirname(fileURLToPath(import.meta.url));
-const assetsDir = join(appDir, "assets");
-const assetFiles = readdirSync(assetsDir);
 const logger = createLogger("notifier-service");
 
 export const notifierStatePath = join(appDir, "data", "notifier-state.json");
@@ -174,19 +169,7 @@ export function loadRecentSent(filePath = recentSentStorePath) {
 }
 
 function loadEventMedia() {
-  const media = {};
-  const baseNames = getConfiguredMediaBaseNames();
-
-  for (const baseName of baseNames) {
-    const filename = resolveMediaAssetFilename(baseName, assetFiles);
-    media[baseName] = {
-      filename,
-      mimetype: getMediaAssetMimeType(filename),
-      data: readFileSync(join(assetsDir, filename)).toString("base64"),
-    };
-  }
-
-  return media;
+  return loadConfiguredEventMedia();
 }
 
 function buildNotifierDeliveryKey({ alert, matched = [], chatId = "", eventType } = {}) {
@@ -566,6 +549,7 @@ export class TelegramNotifier {
     this.stateFilePath = stateFilePath;
     this.recentSentFilePath = recentSentFilePath;
     this.state = loadTelegramNotifierState(stateFilePath);
+    this.eventMedia = loadEventMedia();
     this.callTelegramApi = typeof callTelegramApi === "function"
       ? callTelegramApi
       : (method, payload = null) => this.fetchTelegram(method, payload);
@@ -632,27 +616,15 @@ export class TelegramNotifier {
     }
 
     const caption = formatMessage(alert, matched, { eventType });
-    const result = await retryTelegramOperation(
-      "sendMessage",
-      () => this.callTelegramApi("sendMessage", {
-        chat_id: target.chatId,
-        text: caption,
-      }),
-      {
-        shouldRetry: isTelegramTransientError,
-        onRetry: (detail) => {
-          logger.warn("telegram_notifier_retry", {
-            attempt: detail.attempt,
-            delay_ms: detail.delayMs,
-            delivery_key: deliveryKey,
-            source,
-            event_type: eventType,
-            ...buildTargetLogFields(target.normalized),
-            error: detail.error,
-          });
-        },
-      },
-    );
+    const result = await this.sendTelegramMessage({
+      alert,
+      caption,
+      chatId: target.chatId,
+      eventType,
+      deliveryKey,
+      source,
+      targetLabel: target.normalized,
+    });
 
     appendRecentSentEntry({
       deliveredAt: toIsoString(),
@@ -665,9 +637,9 @@ export class TelegramNotifier {
       deliveryKey,
       alertDate: alert.alertDate || null,
       receivedAt: alert.receivedAt || null,
-      deliveryMode: "text",
+      deliveryMode: result.mode,
       transport: "telegram",
-      providerMessageId: result?.message_id ?? null,
+      providerMessageId: result?.providerMessageId ?? null,
       instanceName: "",
       usedFallback: false,
     }, {
@@ -688,24 +660,153 @@ export class TelegramNotifier {
 
     return {
       skipped: false,
-      mode: "text",
+      mode: result.mode,
       key: deliveryKey,
       eventType,
       chatId: target.normalized,
       transport: "telegram",
-      providerMessageId: result?.message_id ?? null,
+      providerMessageId: result?.providerMessageId ?? null,
       instanceName: "",
       usedFallback: false,
     };
   }
 
+  async sendTelegramMessage({
+    alert,
+    caption,
+    chatId,
+    eventType,
+    deliveryKey,
+    source,
+    targetLabel,
+  } = {}) {
+    try {
+      return await this.sendTelegramPhotoMessage({
+        alert,
+        caption,
+        chatId,
+        eventType,
+        deliveryKey,
+        source,
+        targetLabel,
+      });
+    } catch (err) {
+      logger.warn("telegram_media_fallback", {
+        delivery_key: deliveryKey,
+        source,
+        event_type: eventType,
+        ...buildTargetLogFields(targetLabel || chatId),
+        fallback_to: "text",
+        error: formatTelegramError(err),
+      });
+      return this.sendTelegramTextMessage({
+        caption,
+        chatId,
+        deliveryKey,
+        source,
+        eventType,
+        targetLabel,
+      });
+    }
+  }
+
+  async sendTelegramTextMessage({
+    caption,
+    chatId,
+    deliveryKey,
+    source,
+    eventType,
+    targetLabel,
+  } = {}) {
+    const result = await retryTelegramOperation(
+      "sendMessage",
+      () => this.callTelegramApi("sendMessage", {
+        chat_id: chatId,
+        text: caption,
+      }),
+      {
+        shouldRetry: isTelegramTransientError,
+        onRetry: (detail) => {
+          logger.warn("telegram_notifier_retry", {
+            attempt: detail.attempt,
+            delay_ms: detail.delayMs,
+            delivery_key: deliveryKey,
+            source,
+            event_type: eventType,
+            ...buildTargetLogFields(targetLabel || chatId),
+            error: detail.error,
+          });
+        },
+      },
+    );
+
+    return {
+      mode: "text",
+      providerMessageId: result?.message_id ?? null,
+    };
+  }
+
+  async sendTelegramPhotoMessage({
+    alert,
+    caption,
+    chatId,
+    eventType,
+    deliveryKey,
+    source,
+    targetLabel,
+  } = {}) {
+    const baseName = resolveMessageMediaBaseName(alert, eventType);
+    const file = this.eventMedia[baseName];
+    if (!file) {
+      throw new Error(`telegram media asset missing for ${baseName}`);
+    }
+
+    const form = new FormData();
+    form.set("chat_id", chatId);
+    form.set("caption", caption);
+    form.set(
+      "photo",
+      new Blob([Buffer.from(file.data, "base64")], { type: file.mimetype }),
+      file.filename,
+    );
+
+    const result = await retryTelegramOperation(
+      "sendPhoto",
+      () => this.callTelegramApi("sendPhoto", form),
+      {
+        shouldRetry: isTelegramTransientError,
+        onRetry: (detail) => {
+          logger.warn("telegram_notifier_retry", {
+            attempt: detail.attempt,
+            delay_ms: detail.delayMs,
+            delivery_key: deliveryKey,
+            source,
+            event_type: eventType,
+            ...buildTargetLogFields(targetLabel || chatId),
+            error: detail.error,
+          });
+        },
+      },
+    );
+
+    return {
+      mode: "image",
+      providerMessageId: result?.message_id ?? null,
+    };
+  }
+
   async fetchTelegram(method, payload = null) {
+    const isFormDataPayload = typeof FormData !== "undefined" && payload instanceof FormData;
     const res = await fetch(
       `https://api.telegram.org/bot${this.botToken}/${method}`,
       {
         method: payload ? "POST" : "GET",
-        headers: payload ? { "Content-Type": "application/json" } : undefined,
-        body: payload ? JSON.stringify(payload) : undefined,
+        headers: payload && !isFormDataPayload
+          ? { "Content-Type": "application/json" }
+          : undefined,
+        body: payload
+          ? isFormDataPayload ? payload : JSON.stringify(payload)
+          : undefined,
         signal: AbortSignal.timeout(this.telegramTimeoutMs),
       },
     );

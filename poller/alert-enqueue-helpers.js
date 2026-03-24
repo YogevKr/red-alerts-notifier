@@ -5,6 +5,7 @@ export function buildOutboxJobs({
   matched = [],
   chatIds = [],
   eventType,
+  semanticKey,
   sourceKey,
   nowMs = Date.now(),
 } = {}) {
@@ -17,6 +18,7 @@ export function buildOutboxJobs({
     sourceReceivedAt,
     jobs: chatIds.map((chatId) => ({
       deliveryKey: hashDeliveryKey(buildDeliveryKey(alert, matched, { chatId, eventType })),
+      semanticKey: String(semanticKey || "").trim(),
       sourceKey,
       source,
       eventType,

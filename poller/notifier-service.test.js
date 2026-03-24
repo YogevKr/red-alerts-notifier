@@ -52,7 +52,7 @@ describe("parseNotifierTarget", () => {
 });
 
 describe("TelegramNotifier", () => {
-  it("sends text alerts to telegram targets and records state", async () => {
+  it("sends image alerts to telegram targets and records state", async () => {
     const dirPath = mkdtempSync(join(tmpdir(), "telegram-notifier-"));
     const stateFilePath = join(dirPath, "telegram-state.json");
     const recentSentFilePath = join(dirPath, "recent-sent.json");
@@ -88,11 +88,12 @@ describe("TelegramNotifier", () => {
     });
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].method, "sendMessage");
-    assert.equal(calls[0].payload.chat_id, "123456789");
-    assert.match(calls[0].payload.text, /תל אביב - יפו/);
+    assert.equal(calls[0].method, "sendPhoto");
+    assert.equal(calls[0].payload.get("chat_id"), "123456789");
+    assert.match(String(calls[0].payload.get("caption") || ""), /תל אביב - יפו/);
+    assert.equal(calls[0].payload.get("photo")?.name, "active-alert.jpeg");
     assert.equal(result.transport, "telegram");
-    assert.equal(result.mode, "text");
+    assert.equal(result.mode, "image");
     assert.equal(result.chatId, "telegram:123456789");
     assert.equal(result.providerMessageId, 321);
 
@@ -102,6 +103,7 @@ describe("TelegramNotifier", () => {
     assert.equal(recentSent[0].deliveryKey, "telegram-key");
     assert.equal(recentSent[0].alertDate, "2026-03-18 18:00:00");
     assert.equal(recentSent[0].receivedAt, null);
+    assert.equal(recentSent[0].deliveryMode, "image");
     assert.match(String(recentSent[0].semanticKey || ""), /^[a-f0-9]{64}$/);
 
     const state = loadNotifierState(join(dirPath, "whatsapp-state.json"), {
@@ -110,5 +112,55 @@ describe("TelegramNotifier", () => {
     assert.equal(state.telegramLastDeliveredChatId, "123456789");
     assert.equal(state.lastDeliveredTransport, "telegram");
     assert.equal(state.lastDeliveredEventType, "active_alert");
+  });
+
+  it("falls back to text when telegram media delivery fails", async () => {
+    const dirPath = mkdtempSync(join(tmpdir(), "telegram-notifier-fallback-"));
+    const stateFilePath = join(dirPath, "telegram-state.json");
+    const recentSentFilePath = join(dirPath, "recent-sent.json");
+    const calls = [];
+    const notifier = new TelegramNotifier({
+      botToken: "test-token",
+      stateFilePath,
+      recentSentFilePath,
+      callTelegramApi: async (method, payload = null) => {
+        calls.push({ method, payload });
+        if (method === "sendPhoto") {
+          const err = new Error("telegram sendPhoto responded 400: bad request");
+          err.status = 400;
+          throw err;
+        }
+        return { message_id: 654 };
+      },
+    });
+
+    const result = await notifier.send({
+      delivery_key: "telegram-fallback-key",
+      chat_id: "telegram:123456789",
+      payload_json: {
+        alert: {
+          id: "alert-2",
+          source: "manual",
+          cat: "1",
+          title: "ירי רקטות וטילים",
+          desc: "",
+          data: ["תל אביב - יפו"],
+          alertDate: "2026-03-18 18:05:00",
+        },
+        matched: ["תל אביב - יפו"],
+        chatId: "telegram:123456789",
+        eventType: "active_alert",
+        source: "manual",
+      },
+    });
+
+    assert.deepEqual(calls.map((call) => call.method), ["sendPhoto", "sendMessage"]);
+    assert.equal(calls[1].payload.chat_id, "123456789");
+    assert.match(String(calls[1].payload.text || ""), /תל אביב - יפו/);
+    assert.equal(result.mode, "text");
+    assert.equal(result.providerMessageId, 654);
+
+    const recentSent = loadRecentSent(recentSentFilePath);
+    assert.equal(recentSent[0].deliveryMode, "text");
   });
 });

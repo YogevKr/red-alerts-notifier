@@ -1,67 +1,54 @@
-export const MESSAGE_TEMPLATES = {
-  classifier: {
-    preAlert: {
-      upcomingAlertsRawTitle: "בדקות הקרובות צפויות להתקבל התרעות באזורך",
-    },
-    stayNearbyUpdate: {
-      rawTitles: [
-        "ניתן לצאת מהמרחב המוגן אך יש להישאר בקרבתו",
-        "ניתן לצאת מהמרחב המוגן אך יש להשאר בקרבתו",
-      ],
-    },
-    allClear: {
-      rawTitles: [
-        "האירוע הסתיים",
-        "הארוע הסתיים",
-        "סיום שהייה בסמיכות למרחב המוגן",
-      ],
-    },
-    activeAlert: {
-      rocketRawTitle: "ירי רקטות וטילים",
-    },
-    droneAlert: {
-      rawTitle: "חדירת כלי טיס עוין",
-    },
-    earthquakeAlert: {
-      rawTitle: "רעידת אדמה",
-    },
-  },
-  whatsapp: {
-    preAlert: {
-      mediaBaseName: "pre-alert",
-      upcomingAlertsTemplate:
-        "בדקות הקרובות צפויות להתקבל התרעות באזורך עקב ירי טילים ורקטות.\n\nיש לשהות בסמוך למרחב מוגן ולהמשיך לעקוב אחר ההנחיות.",
-      defaultTemplate: "התקבלה הנחיה מקדימה - יש לשהות בסמוך למרחב מוגן",
-    },
-    stayNearbyUpdate: {
-      mediaBaseName: "stay_nearby",
-      template:
-        "ניתן לצאת מהמרחב המוגן, אך יש להישאר בקרבתו ולהמשיך לעקוב אחר ההנחיות.",
-    },
-    allClear: {
-      mediaBaseName: "all-clear",
-      template:
-        "האירוע הסתיים - ניתן לצאת מהמרחב המוגן.\n\nאין צורך לשהות בסמוך למרחב מוגן.",
-    },
-    activeAlert: {
-      mediaBaseName: "active-alert",
-      rocketTemplate:
-        "ירי טילים ורקטות באזורך.\n\nיש להכנס למרחב המוגן ולשהות בו עד לקבלת הודעת שחרור.",
-    },
-    droneAlert: {
-      mediaBaseName: "drone",
-      template:
-        "עקב חדירת כלי טיס עוין הופעלה התרעה באזורך.\n\nיש להיכנס למרחב המוגן ולשהות בו עד קבלת הודעת שחרור.",
-    },
-    earthquakeAlert: {
-      mediaBaseName: "earthquake",
-      template:
-        "הופעלה התרעה בשל רעידת אדמה באזורך.\n\nצאו מיד לשטח פתוח.\n\nאם לא ניתן - הכנסו לממ\"ד והשאירו את הדלת והחלון פתוחים.",
-    },
-    generalAlert: {
-      mediaBaseName: "general",
-      useRawTitleAsTemplate: true,
-      fallbackTemplate: "התקבלה התרעה - יש לפעול בהתאם להנחיות פיקוד העורף.",
-    },
-  },
-};
+import { existsSync, readFileSync } from "node:fs";
+import { messageTemplatesOverridePath } from "./customization-paths.js";
+import { DEFAULT_MESSAGE_TEMPLATES } from "./message-templates.defaults.js";
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function mergeMessageTemplates(base = {}, override = {}) {
+  if (Array.isArray(base)) {
+    return Array.isArray(override) ? [...override] : [...base];
+  }
+
+  if (!isPlainObject(base)) {
+    return override === undefined ? base : override;
+  }
+
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(override || {})) {
+    if (isPlainObject(base[key]) && isPlainObject(value)) {
+      merged[key] = mergeMessageTemplates(base[key], value);
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      merged[key] = [...value];
+      continue;
+    }
+
+    merged[key] = value;
+  }
+
+  return merged;
+}
+
+export function loadMessageTemplates({
+  defaultTemplates = DEFAULT_MESSAGE_TEMPLATES,
+  overrideFilePath = messageTemplatesOverridePath,
+} = {}) {
+  if (!overrideFilePath || !existsSync(overrideFilePath)) {
+    return defaultTemplates;
+  }
+
+  try {
+    const overrideTemplates = JSON.parse(readFileSync(overrideFilePath, "utf8"));
+    return mergeMessageTemplates(defaultTemplates, overrideTemplates);
+  } catch (err) {
+    throw new Error(
+      `Failed to load message template override from ${overrideFilePath}: ${err.message}`,
+    );
+  }
+}
+
+export const MESSAGE_TEMPLATES = loadMessageTemplates();

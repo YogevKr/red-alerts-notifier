@@ -32,34 +32,35 @@ During escalations, getting alerts fast and reliably matters. This system:
 
 | Source | Type | Endpoint |
 |--------|------|----------|
+| OREF MQTT | Push/MQTT | official mobile-app push backend (`com.alert.meserhadash`) |
 | Tzevaadom | WebSocket | `ws.tzevaadom.co.il` (community-run mirror) |
 | OREF live alerts | HTTP poll | `oref.org.il/.../alerts.json` |
 | OREF history | HTTP poll | `oref.org.il/.../AlertsHistory.json` |
 
-All sources are normalized into a single internal format. Cross-source deduplication ensures each unique alert is delivered exactly once, regardless of how many sources report it.
+OREF MQTT is the main realtime source and is enabled by default. The other sources stay on as confirmation and fallback paths. All sources are normalized into a single internal format, and cross-source deduplication ensures each unique alert is delivered exactly once regardless of how many sources report it.
 
 ## How it works
 
 ```
   ┌─────────────────┐
-  │   Tzevaadom WS   │──push──┐
+  │   OREF MQTT      │──push──┐
   └─────────────────┘         │
-  ┌─────────────────┐         ▼
-  │  OREF Live API   │──poll──▶ Poller ──▶ Location ──▶ Dedupe ──▶ Outbox (PostgreSQL)
-  └─────────────────┘         ▲  filter                               │
-  ┌─────────────────┐         │                                       ▼
-  │ OREF History API │──poll──┘                              Notifier Worker
-  └─────────────────┘                                          │          │
-                                                               ▼          ▼
-                                                          WhatsApp    Telegram
-                                                        (Evolution)  (Bot API)
+  ┌─────────────────┐         │
+  │   Tzevaadom WS   │──push──┼──▶ Poller ──▶ Location ──▶ Dedupe ──▶ Outbox (PostgreSQL)
+  └─────────────────┘         │      filter                               │
+  ┌─────────────────┐         │                                           ▼
+  │  OREF Live API   │──poll──┤                                  Notifier Worker
+  └─────────────────┘         │                                       │          │
+  ┌─────────────────┐         │                                       ▼          ▼
+  │ OREF History API │──poll──┘                                  WhatsApp    Telegram
+  └─────────────────┘                                            (Evolution)  (Bot API)
 ```
 
-1. **Poller** listens to Tzevaadom via WebSocket and fetches OREF APIs every few seconds
+1. **Poller** listens to OREF MQTT as the main push source, keeps Tzevaadom as a second realtime path, and polls OREF APIs for confirmation/backfill
 2. **Location filter** keeps only alerts matching your configured locations (e.g. `תל אביב - יפו`)
 3. **Deduplication** prevents the same alert from being sent twice, even from different sources
-4. **Outbox** (PostgreSQL) queues one notification job per destination, with retries and dead-letter handling
-5. **Notifier worker** picks jobs from the outbox and delivers via WhatsApp or Telegram
+4. **Alert sinks** receive matched alerts. The default full-stack sink is a PostgreSQL-backed notification outbox, and the lightweight poller-only sink is structured log output
+5. **Notifier worker** picks jobs from the notification outbox and delivers via WhatsApp or Telegram
 6. **Telegram bot** provides ops commands: `/status`, `/mute`, `/unmute`, `/recent_sent`
 
 ## Quick start
@@ -81,6 +82,18 @@ sudo docker compose up -d --build
 # Verify
 curl http://127.0.0.1:3000/health
 ```
+
+## Poller-only deploy
+
+If you only want the alert collection layer and plan to wire your own sink later, use the dedicated poller-only compose file:
+
+```bash
+cp .env.example .env
+# edit ALERT_LOCATIONS and keep ALERT_SINKS=log
+docker compose -f docker-compose.poller-only.yml up -d --build
+```
+
+That starts only the polling/socket runtime and the local state volume. No PostgreSQL, Redis, Evolution, or notifier worker are required.
 
 ## WhatsApp setup
 
@@ -133,7 +146,8 @@ Copy `.env.example` to `.env`. Key variables:
 | `WHATSAPP_NUMBER` | For WA | Sender phone number (paired via QR) |
 | `TELEGRAM_BOT_TOKEN` | For TG | Telegram bot token from @BotFather |
 | `TELEGRAM_ALLOWED_USER_IDS` | For TG | Comma-separated user IDs allowed to use the bot |
-| `ACTIVE_SOURCES` | No | Sources to enable (default: `tzevaadom,oref_alerts,oref_history`) |
+| `ACTIVE_SOURCES` | No | Sources to enable (default: `oref_mqtt,tzevaadom,oref_alerts,oref_history`) |
+| `ALERT_SINKS` | No | Alert sinks to enable: `notification_outbox`, `log`, or both |
 | `DELIVERY_ENABLED` | No | `true`/`false` (default: `false` — enable after setup) |
 | `NOTIFIER_ACTIVE_TRANSPORTS` | No | `telegram`, `whatsapp`, or both |
 
@@ -143,32 +157,46 @@ See [`.env.example`](.env.example) for the full list including polling intervals
 
 ### Change message text
 
-Edit [poller/message-templates.js](poller/message-templates.js). The WhatsApp message bodies live under `MESSAGE_TEMPLATES.whatsapp`, for example `preAlert.upcomingAlertsTemplate`, `activeAlert.rocketTemplate`, and `allClear.template`.
+Public defaults stay in [poller/message-templates.defaults.js](poller/message-templates.defaults.js). Private/local overrides live in `poller/overrides/message-templates.override.json`, which is already ignored by git. Start from [poller/overrides/message-templates.override.example.json](poller/overrides/message-templates.override.example.json).
+
+Start by copying the example:
+
+```bash
+cp poller/overrides/message-templates.override.example.json poller/overrides/message-templates.override.json
+```
+
+Then edit only the fields you want to override. The WhatsApp message bodies live under `whatsapp`, for example `preAlert.upcomingAlertsTemplate`, `activeAlert.rocketTemplate`, and `allClear.template`.
 
 ### Change the default image
 
-Replace [poller/assets/general.png](poller/assets/general.png). WhatsApp media assets support `.png`, `.jpg`, and `.jpeg`.
+Public fallback assets stay in [poller/assets](poller/assets). Private/local assets go in [poller/overrides/assets](poller/overrides/assets), which is also ignored by git. WhatsApp media assets support `.png`, `.jpg`, and `.jpeg`.
 
 ### Use different images for different events
 
-1. Add image files under `poller/assets/`.
-2. In [poller/message-templates.js](poller/message-templates.js), set a different `mediaBaseName` for the event you want to customize.
-3. Create a matching file in `poller/assets` using that basename.
+1. Add image files under `poller/overrides/assets/`.
+2. In `poller/overrides/message-templates.override.json`, set a different `mediaBaseName` for the event you want to customize.
+3. Create a matching file in `poller/overrides/assets` using that basename.
 
 Example:
 
-```js
-activeAlert: {
-  mediaBaseName: "rocket",
-  rocketTemplate: "ירי טילים ורקטות באזורך.\n\nיש להכנס למרחב המוגן ולשהות בו עד לקבלת הודעת שחרור.",
-},
-allClear: {
-  mediaBaseName: "all-clear",
-  template: "האירוע הסתיים - ניתן לצאת מהמרחב המוגן.",
-},
+```json
+{
+  "whatsapp": {
+    "activeAlert": {
+      "mediaBaseName": "rocket",
+      "rocketTemplate": "ירי טילים ורקטות באזורך.\n\nיש להיכנס למרחב המוגן ולשהות בו עד לקבלת הודעת שחרור."
+    },
+    "allClear": {
+      "mediaBaseName": "all-clear",
+      "template": "האירוע הסתיים - ניתן לצאת מהמרחב המוגן."
+    }
+  }
+}
 ```
 
-Then add files like `poller/assets/rocket.png` and `poller/assets/all-clear.png`.
+Then add files like `poller/overrides/assets/rocket.png` and `poller/overrides/assets/all-clear.png`.
+
+Override assets win over public assets with the same basename, so you can keep the public repo clean and carry local/private branding in `poller/overrides/` only.
 
 After changing templates or assets, rebuild the containers:
 
@@ -182,11 +210,11 @@ Image assets currently apply to WhatsApp delivery. Telegram notifications are se
 
 | Service | Description |
 |---------|-------------|
-| `poller` | Polls alert sources, matches locations, enqueues notifications |
+| `poller` | Polls alert sources, matches locations, and hands alerts to the configured sinks |
 | `notifier-worker` | Processes the outbox queue, delivers to WhatsApp/Telegram |
 | `telegram-bot` | Long-poll Telegram bot for ops commands |
 | `evolution-api` | WhatsApp Web gateway ([Evolution API](https://github.com/EvolutionAPI/evolution-api)) |
-| `evolution-db` | PostgreSQL — stores Evolution data + notification outbox |
+| `app-db` | Shared PostgreSQL — stores Evolution data + notification outbox |
 | `evolution-redis` | Redis cache for Evolution API sessions |
 
 ## Ops
@@ -215,6 +243,7 @@ npm test
 
 - [Alert sources](docs/sources.md) — source channels, polling behavior, debug captures
 - [Deployment](docs/deploy.md) — setup, config reference, WhatsApp pairing
+- [Alert sinks](docs/sinks.md) — built-in sinks and the extension seam for custom destinations
 
 ## License
 

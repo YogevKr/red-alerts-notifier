@@ -2,6 +2,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export const PAGERDUTY_EVENTS_URL = "https://events.pagerduty.com/v2/enqueue";
+const DEPRECATED_PAGERDUTY_DEDUP_KEYS = new Set([
+  "mqtt-credentials-blocked",
+]);
 
 export function parsePositiveIntEnv(value, fallback) {
   const parsed = parseInt(value, 10);
@@ -98,6 +101,7 @@ export class PagerDutyIncidentManager {
     this.fetchImpl = fetchImpl;
     this.logger = logger;
     this.state = this.loadState();
+    this.pruneDeprecatedState();
   }
 
   get enabled() {
@@ -208,6 +212,18 @@ export class PagerDutyIncidentManager {
       }
       return new Map();
     }
+  }
+
+  pruneDeprecatedState() {
+    const deprecatedKeys = [...this.state.keys()].filter((dedupKey) => DEPRECATED_PAGERDUTY_DEDUP_KEYS.has(dedupKey));
+    if (deprecatedKeys.length === 0) return;
+
+    for (const dedupKey of deprecatedKeys) {
+      this.state.delete(dedupKey);
+    }
+
+    this.persist();
+    this.logger.log?.(`PagerDuty pruned deprecated incidents: ${deprecatedKeys.join(",")}`);
   }
 
   persist() {

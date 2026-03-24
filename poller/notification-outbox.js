@@ -20,6 +20,7 @@ export const OUTBOX_STATUSES = {
   FAILED: "failed",
   UNCERTAIN: "uncertain",
   DEAD_LETTERED: "dead_lettered",
+  DUPLICATE: "duplicate",
 };
 
 export const DELETE_EXPIRED_TERMINAL_JOB_SQL = `
@@ -32,6 +33,7 @@ where delivery_key = $1
 export const INSERT_OUTBOX_JOB_SQL = `
 insert into ${NOTIFICATION_OUTBOX_TABLE} (
   delivery_key,
+  semantic_key,
   source_key,
   source,
   event_type,
@@ -39,6 +41,7 @@ insert into ${NOTIFICATION_OUTBOX_TABLE} (
   source_received_at,
   payload_json,
   status,
+  is_duplicate,
   available_at,
   created_at,
   updated_at
@@ -50,13 +53,15 @@ values (
   $4,
   $5,
   $6,
-  $7::jsonb,
+  $7,
+  $8::jsonb,
   '${OUTBOX_STATUSES.PENDING}',
-  $8,
-  $8,
-  $8
+  false,
+  $9,
+  $9,
+  $9
 )
-on conflict (delivery_key) do nothing
+on conflict (delivery_key) where (coalesce(is_duplicate, false) = false) do nothing
 returning id, delivery_key, status
 `;
 
@@ -64,7 +69,44 @@ export const SELECT_OUTBOX_JOB_SQL = `
 select id, delivery_key, status, available_at, sent_at, failed_at, uncertain_at, dead_lettered_at
 from ${NOTIFICATION_OUTBOX_TABLE}
 where delivery_key = $1
+  and coalesce(is_duplicate, false) = false
 limit 1
+`;
+
+export const INSERT_OUTBOX_DUPLICATE_SQL = `
+insert into ${NOTIFICATION_OUTBOX_TABLE} (
+  delivery_key,
+  semantic_key,
+  source_key,
+  source,
+  event_type,
+  chat_id,
+  source_received_at,
+  payload_json,
+  status,
+  is_duplicate,
+  available_at,
+  sent_at,
+  created_at,
+  updated_at
+)
+values (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8::jsonb,
+  '${OUTBOX_STATUSES.DUPLICATE}',
+  true,
+  $9,
+  $9,
+  $9,
+  $9
+)
+returning id, delivery_key, semantic_key, is_duplicate, status
 `;
 
 export const MARK_OUTBOX_DISPATCH_STARTED_SQL = `
@@ -158,14 +200,36 @@ returning id, delivery_key, status, uncertain_at, last_error
 
 export const OUTBOX_STATS_SQL = `
 select
-  count(*) filter (where status = '${OUTBOX_STATUSES.PENDING}')::integer as pending,
-  count(*) filter (where status = '${OUTBOX_STATUSES.PROCESSING}')::integer as processing,
-  count(*) filter (where status = '${OUTBOX_STATUSES.SENT}')::integer as sent,
-  count(*) filter (where status = '${OUTBOX_STATUSES.FAILED}')::integer as failed,
-  count(*) filter (where status = '${OUTBOX_STATUSES.UNCERTAIN}')::integer as uncertain,
-  count(*) filter (where status = '${OUTBOX_STATUSES.DEAD_LETTERED}')::integer as dead_lettered,
+  count(*) filter (
+    where coalesce(is_duplicate, false) = false
+      and status = '${OUTBOX_STATUSES.PENDING}'
+  )::integer as pending,
+  count(*) filter (
+    where coalesce(is_duplicate, false) = false
+      and status = '${OUTBOX_STATUSES.PROCESSING}'
+  )::integer as processing,
+  count(*) filter (
+    where coalesce(is_duplicate, false) = false
+      and status = '${OUTBOX_STATUSES.SENT}'
+  )::integer as sent,
+  count(*) filter (
+    where coalesce(is_duplicate, false) = false
+      and status = '${OUTBOX_STATUSES.FAILED}'
+  )::integer as failed,
+  count(*) filter (
+    where coalesce(is_duplicate, false) = false
+      and status = '${OUTBOX_STATUSES.UNCERTAIN}'
+  )::integer as uncertain,
+  count(*) filter (
+    where coalesce(is_duplicate, false) = false
+      and status = '${OUTBOX_STATUSES.DEAD_LETTERED}'
+  )::integer as dead_lettered,
+  count(*) filter (
+    where coalesce(is_duplicate, false) = true
+  )::integer as duplicates,
   min(available_at) filter (
-    where status in ('${OUTBOX_STATUSES.PENDING}', '${OUTBOX_STATUSES.FAILED}')
+    where coalesce(is_duplicate, false) = false
+      and status in ('${OUTBOX_STATUSES.PENDING}', '${OUTBOX_STATUSES.FAILED}')
   ) as oldest_available_at
 from ${NOTIFICATION_OUTBOX_TABLE}
 `;
@@ -181,6 +245,7 @@ select
   payload_json->>'dispatchStartedAt' as payload_dispatch_started_at
 from ${NOTIFICATION_OUTBOX_TABLE}
 where status = '${OUTBOX_STATUSES.SENT}'
+  and coalesce(is_duplicate, false) = false
   and sent_at is not null
 order by sent_at desc, id desc
 limit $1
@@ -254,6 +319,7 @@ export class PostgresNotificationOutbox {
 
         const insertedRows = await queryRows(db, INSERT_OUTBOX_JOB_SQL, [
           deliveryKey,
+          String(item?.semanticKey || "").trim(),
           String(item?.sourceKey || "").trim(),
           String(item?.source || "unknown").trim(),
           String(item?.eventType || "").trim(),
@@ -307,6 +373,34 @@ export class PostgresNotificationOutbox {
       String(workerId || "").trim() || null,
     ]);
     return rows.map(normalizeJobRow);
+  }
+
+  async insertDuplicateMany(items = [], now = Date.now()) {
+    const createdAt = new Date(now);
+
+    return withDbTransaction(this.pool, async (db) => {
+      const rows = [];
+
+      for (const item of items) {
+        const deliveryKey = String(item?.deliveryKey || item?.key || "").trim();
+        if (!deliveryKey) continue;
+
+        const insertedRows = await queryRows(db, INSERT_OUTBOX_DUPLICATE_SQL, [
+          deliveryKey,
+          String(item?.semanticKey || "").trim(),
+          String(item?.sourceKey || "").trim(),
+          String(item?.source || "unknown").trim(),
+          String(item?.eventType || "").trim(),
+          String(item?.chatId || "").trim(),
+          normalizeDate(item?.sourceReceivedAt),
+          JSON.stringify(buildJobPayload(item)),
+          createdAt,
+        ]);
+        rows.push(...insertedRows);
+      }
+
+      return rows;
+    });
   }
 
   async recoverStaleDispatches(now = Date.now(), {
@@ -381,6 +475,7 @@ export class PostgresNotificationOutbox {
       failed: row?.failed || 0,
       uncertain: row?.uncertain || 0,
       deadLettered: row?.dead_lettered || 0,
+      duplicates: row?.duplicates || 0,
       oldestAvailableAt: oldestAvailableAt ? oldestAvailableAt.toISOString() : null,
       latency: summarizeOutboxLatencyRows(latencyRows),
     };

@@ -23,6 +23,7 @@ describe("createPollerConfig", () => {
     assert.deepEqual(config.targetChatIds, ["telegram:1", "972500000000"]);
     assert.deepEqual(config.testChatIds, ["telegram:9"]);
     assert.deepEqual(config.configuredNotifierTransports, ["telegram", "whatsapp"]);
+    assert.deepEqual(config.alertSinks.names, ["log"]);
     assert.deepEqual(config.sources.activeNames, ["oref_history", "oref_mqtt"]);
     assert.deepEqual(config.sources.polledNames, ["oref_history"]);
     assert.deepEqual(config.sources.realtimeNames, ["oref_mqtt"]);
@@ -39,8 +40,10 @@ describe("createPollerConfig", () => {
       WHATSAPP_TARGETS: "telegram:1",
       TZEVAADOM_ENABLED: "true",
       OREF_MQTT_ENABLED: "true",
+      POLLER_DATABASE_URL: "postgresql://postgres:postgres@db:5432/red_alerts",
     });
 
+    assert.deepEqual(config.alertSinks.names, ["notification_outbox"]);
     assert.deepEqual(config.sources.activeNames, [
       "oref_alerts",
       "oref_history",

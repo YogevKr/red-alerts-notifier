@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DELETE_EXPIRED_TERMINAL_JOB_SQL,
   INSERT_OUTBOX_JOB_SQL,
+  INSERT_OUTBOX_DUPLICATE_SQL,
   MARK_OUTBOX_DEAD_LETTERED_SQL,
   MARK_OUTBOX_FAILED_SQL,
   MARK_STALE_DISPATCHES_UNCERTAIN_SQL,
@@ -58,6 +59,7 @@ describe("PostgresNotificationOutbox.enqueueMany", () => {
     const now = Date.parse("2026-03-18T10:00:00Z");
     const results = await outbox.enqueueMany([{
       deliveryKey: "key-1",
+      semanticKey: "semantic-1",
       sourceKey: "source-1",
       source: "oref_history",
       eventType: "active_alert",
@@ -77,7 +79,8 @@ describe("PostgresNotificationOutbox.enqueueMany", () => {
     assert.equal(calls[1].text, "BEGIN");
     assert.equal(calls[2].text, DELETE_EXPIRED_TERMINAL_JOB_SQL);
     assert.equal(calls[3].text, INSERT_OUTBOX_JOB_SQL);
-    assert.equal(calls[3].values[5]?.toISOString(), "2026-03-18T09:59:55.000Z");
+    assert.equal(calls[3].values[1], "semantic-1");
+    assert.equal(calls[3].values[6]?.toISOString(), "2026-03-18T09:59:55.000Z");
     assert.equal(calls[4].text, NOTIFY_OUTBOX_READY_SQL);
     assert.equal(calls[5].text, "COMMIT");
   });
@@ -97,6 +100,7 @@ describe("PostgresNotificationOutbox.enqueueMany", () => {
     const now = Date.parse("2026-03-18T10:00:00Z");
     const results = await outbox.enqueueMany([{
       deliveryKey: "key-1",
+      semanticKey: "semantic-1",
       sourceKey: "source-1",
       source: "oref_alerts",
       eventType: "active_alert",
@@ -129,6 +133,7 @@ describe("PostgresNotificationOutbox.enqueueMany", () => {
     const outbox = new PostgresNotificationOutbox({ pool });
     const results = await outbox.enqueueMany([{
       deliveryKey: "key-1",
+      semanticKey: "semantic-1",
       sourceKey: "source-1",
       source: "oref_history",
       eventType: "active_alert",
@@ -144,6 +149,46 @@ describe("PostgresNotificationOutbox.enqueueMany", () => {
       status: OUTBOX_STATUSES.PROCESSING,
     }]);
     assert.equal(calls.some((call) => call.text === NOTIFY_OUTBOX_READY_SQL), false);
+  });
+
+  it("inserts duplicate observations as flagged rows", async () => {
+    const { pool, calls } = createPoolWithClient(({ text }) => {
+      if (text === "BEGIN" || text === "COMMIT") return { rows: [] };
+      if (text === INSERT_OUTBOX_DUPLICATE_SQL) {
+        return {
+          rows: [{
+            id: 17,
+            delivery_key: "key-1",
+            semantic_key: "semantic-1",
+            is_duplicate: true,
+            status: OUTBOX_STATUSES.DUPLICATE,
+          }],
+        };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    });
+
+    const outbox = new PostgresNotificationOutbox({ pool });
+    const rows = await outbox.insertDuplicateMany([{
+      deliveryKey: "key-1",
+      semanticKey: "semantic-1",
+      sourceKey: "source-1",
+      source: "oref_history",
+      eventType: "active_alert",
+      chatId: "972500000000",
+      sourceReceivedAt: "2026-03-18T09:59:55.000Z",
+      payload: { alert: { id: "1" } },
+    }], Date.parse("2026-03-18T10:00:00Z"));
+
+    assert.equal(calls[0].text, "connect");
+    assert.equal(calls[1].text, "BEGIN");
+    assert.equal(calls[2].text, INSERT_OUTBOX_DUPLICATE_SQL);
+    assert.equal(calls[2].values[0], "key-1");
+    assert.equal(calls[2].values[1], "semantic-1");
+    assert.equal(calls[2].values[8]?.toISOString(), "2026-03-18T10:00:00.000Z");
+    assert.equal(calls[3].text, "COMMIT");
+    assert.equal(rows[0].is_duplicate, true);
+    assert.equal(rows[0].status, OUTBOX_STATUSES.DUPLICATE);
   });
 });
 
@@ -243,6 +288,7 @@ describe("PostgresNotificationOutbox.getStats", () => {
             failed: 4,
             uncertain: 1,
             dead_lettered: 2,
+            duplicates: 5,
             oldest_available_at: "2026-03-18T09:59:00.000Z",
           }],
         };
@@ -282,6 +328,7 @@ describe("PostgresNotificationOutbox.getStats", () => {
       failed: 4,
       uncertain: 1,
       deadLettered: 2,
+      duplicates: 5,
       oldestAvailableAt: "2026-03-18T09:59:00.000Z",
       latency: {
         sampleLimit: 200,

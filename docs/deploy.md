@@ -65,6 +65,17 @@ docker compose up -d --build poller notifier-worker
 docker compose ps poller notifier-worker
 ```
 
+## Poller-only deploy
+
+For source collection without WhatsApp, Telegram, PostgreSQL, or Evolution:
+
+```bash
+cp .env.example .env
+# set ALERT_LOCATIONS and keep ALERT_SINKS=log
+docker compose -f docker-compose.poller-only.yml up -d --build
+docker compose -f docker-compose.poller-only.yml ps
+```
+
 ## Verify
 
 ```bash
@@ -75,8 +86,8 @@ curl -sS "http://127.0.0.1:3000/debug/captures?limit=5"
 Expected:
 
 - `ok: true`
-- `outbox.pending` present
-- `notifier.whatsappConnectionState` present
+- full stack: `outbox.pending` present and `notifier.whatsappConnectionState` present
+- poller-only: `database` and `outbox` may be `null`
 
 ## WhatsApp pairing
 
@@ -103,6 +114,7 @@ Important env vars (see `.env.example` for full list):
 - `TEST_NOTIFICATION_TARGETS` — test-only targets (e.g. `telegram:123456789`)
 - `TELEGRAM_BOT_TOKEN` — Telegram bot token
 - `TELEGRAM_ALLOWED_USER_IDS` — comma-separated allowed Telegram user IDs
+- `ALERT_SINKS` — `notification_outbox`, `log`, or both
 - `NOTIFIER_ACTIVE_TRANSPORTS` — `telegram`, `whatsapp`, or both
 - `ALERT_LOCATIONS` — comma-separated location names to monitor
 - `DELIVERY_ENABLED` — `true` or `false`

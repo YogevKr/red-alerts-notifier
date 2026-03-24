@@ -338,7 +338,8 @@ export function createOrefMqttSourceRuntime({
     cityCount: 0,
     credentialsLoadedAt: null,
     credentialsError: null,
-    credentialsBlocked: false,
+    credentialsValidationStatus: "unknown",
+    credentialsUsable: false,
     topicsSubscribedAt: null,
     topicsError: null,
     topics: configuredTopics,
@@ -399,7 +400,8 @@ export function createOrefMqttSourceRuntime({
         cityCount: state.cityCount,
         credentialsLoadedAt: state.credentialsLoadedAt,
         credentialsError: state.credentialsError,
-        credentialsBlocked: state.credentialsBlocked,
+        credentialsValidationStatus: state.credentialsValidationStatus,
+        credentialsUsable: state.credentialsUsable,
         topicsSubscribedAt: state.topicsSubscribedAt,
         topicsError: state.topicsError,
         rawLog: rawLogStore.status(),
@@ -454,12 +456,13 @@ export function createOrefMqttSourceRuntime({
         ...persisted,
         timeoutMs,
       });
-      state.credentialsBlocked = Boolean(validation.blocked);
+      state.credentialsValidationStatus = validation.validationStatus || "unknown";
+      state.credentialsUsable = Boolean(validation.valid);
       if (validation.valid) {
         state.credentialsLoadedAt = toIsoString();
         state.credentialsError = null;
         logger.info("oref_mqtt_credentials_reused", {
-          blocked: state.credentialsBlocked,
+          validation_status: state.credentialsValidationStatus,
         });
         return persisted;
       }
@@ -474,7 +477,8 @@ export function createOrefMqttSourceRuntime({
     persistCredentials(credentials);
     state.credentialsLoadedAt = toIsoString();
     state.credentialsError = null;
-    state.credentialsBlocked = false;
+    state.credentialsValidationStatus = "registered";
+    state.credentialsUsable = true;
     logger.info("oref_mqtt_credentials_registered");
     return credentials;
   }
@@ -518,6 +522,7 @@ export function createOrefMqttSourceRuntime({
       stream.setCredentials(credentials);
     } catch (err) {
       state.credentialsError = err.message;
+      state.credentialsUsable = false;
       logger.warn("oref_mqtt_credentials_failed", {
         error: err,
       });

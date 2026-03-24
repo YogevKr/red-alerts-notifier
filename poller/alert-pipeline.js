@@ -24,7 +24,9 @@ export function createAlertPipeline({
   isDeliverableEventType,
   rememberRecentAlertFlow = () => {},
   toIsoString = (timestampMs = Date.now()) => new Date(timestampMs).toISOString(),
+  hasDeliveredKey = () => false,
   rememberDeliveredKey,
+  recordDuplicateAlert = async () => {},
   hashDeliveryKey,
   buildDeliveryKey,
 } = {}) {
@@ -102,8 +104,30 @@ export function createAlertPipeline({
       };
     }
 
+    if (context.semanticKey && hasDeliveredKey(context.semanticKey, context.eventTimestampMs)) {
+      if (summary) {
+        summary.duplicate_enqueue_count += chatIds.length;
+      }
+      await recordDuplicateAlert({
+        alert: context.alert,
+        matched: context.matched,
+        chatIds,
+        eventType: context.eventType,
+        semanticKey: context.semanticKey,
+        sourceKey: context.sourceKey,
+      });
+      rememberFlow(context, "duplicate");
+      return {
+        ...context,
+        matchedAlert: true,
+        skipped: true,
+        reason: "duplicate",
+      };
+    }
+
     const enqueueResult = await enqueueAlertNotifications(context.alert, context.matched, {
       chatIds,
+      semanticKey: context.semanticKey,
     });
 
     if (summary) {
@@ -114,6 +138,9 @@ export function createAlertPipeline({
       context,
       enqueueResult.reason || (enqueueResult.skipped ? "skipped" : "enqueued"),
     );
+    if ((enqueueResult.enqueuedCount || 0) > 0 && context.semanticKey) {
+      rememberDeliveredKey(context.semanticKey, context.eventTimestampMs);
+    }
 
     rememberSeenSourceAlertKey(context.sourceKey, context.eventTimestampMs);
 
@@ -149,6 +176,9 @@ export function createAlertPipeline({
 
     if (rememberSeenSourceAlertKey(context.sourceKey, context.eventTimestampMs)) {
       seededSourceAlerts += 1;
+    }
+    if (context.semanticKey) {
+      rememberDeliveredKey(context.semanticKey, context.eventTimestampMs);
     }
 
     if (!context.supported || !context.deliverable) {

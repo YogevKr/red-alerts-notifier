@@ -23,27 +23,37 @@ describe("ensureOutboxSchema", () => {
 
     await ensureOutboxSchema(db);
 
-    assert.equal(queries.length, 8);
+    assert.equal(queries.length, 13);
     assert.match(queries[0], new RegExp(`create schema if not exists ${NOTIFICATION_OUTBOX_SCHEMA}`, "i"));
     assert.match(queries[1], new RegExp(`create table if not exists ${NOTIFICATION_OUTBOX_TABLE.replace(".", "\\.")}`, "i"));
     assert.match(queries[1], /delivery_key text not null/i);
+    assert.match(queries[1], /semantic_key text/i);
     assert.match(queries[1], /source_received_at timestamptz/i);
     assert.match(queries[1], /payload_json jsonb not null/i);
+    assert.match(queries[1], /duplicate_count integer not null default 0/i);
+    assert.match(queries[1], /is_duplicate boolean not null default false/i);
     assert.match(queries[1], /dead_lettered_at timestamptz/i);
     assert.match(queries[2], new RegExp(`alter table ${NOTIFICATION_OUTBOX_TABLE.replace(".", "\\.")}`, "i"));
     assert.match(queries[2], /add column if not exists dead_lettered_at timestamptz/i);
     assert.match(queries[3], new RegExp(`alter table ${NOTIFICATION_OUTBOX_TABLE.replace(".", "\\.")}`, "i"));
     assert.match(queries[3], /add column if not exists source_received_at timestamptz/i);
-    assert.match(queries[4], /create unique index if not exists notification_outbox_delivery_key_idx/i);
-    assert.match(queries[5], /create index if not exists notification_outbox_status_available_idx/i);
-    assert.match(queries[6], /create index if not exists notification_outbox_processing_idx/i);
-    assert.match(queries[7], /create index if not exists notification_outbox_sent_idx/i);
+    assert.match(queries[4], /add column if not exists semantic_key text/i);
+    assert.match(queries[5], /add column if not exists duplicate_count integer not null default 0/i);
+    assert.match(queries[6], /add column if not exists is_duplicate boolean not null default false/i);
+    assert.match(queries[7], /drop index if exists .*notification_outbox_delivery_key_idx/i);
+    assert.match(queries[8], /create unique index if not exists notification_outbox_delivery_key_idx/i);
+    assert.match(queries[8], /where coalesce\(is_duplicate, false\) = false/i);
+    assert.match(queries[9], /create index if not exists notification_outbox_semantic_key_idx/i);
+    assert.match(queries[10], /create index if not exists notification_outbox_status_available_idx/i);
+    assert.match(queries[11], /create index if not exists notification_outbox_processing_idx/i);
+    assert.match(queries[12], /create index if not exists notification_outbox_sent_idx/i);
   });
 });
 
 describe("RESERVE_OUTBOX_JOBS_SQL", () => {
   it("skips already-locked rows and expired processing only", () => {
     assert.match(RESERVE_OUTBOX_JOBS_SQL, /for update skip locked/i);
+    assert.match(RESERVE_OUTBOX_JOBS_SQL, /coalesce\(is_duplicate, false\) = false/i);
     assert.match(RESERVE_OUTBOX_JOBS_SQL, /status = 'pending'/i);
     assert.match(RESERVE_OUTBOX_JOBS_SQL, /status = 'failed'/i);
     assert.match(RESERVE_OUTBOX_JOBS_SQL, /status = 'processing'/i);

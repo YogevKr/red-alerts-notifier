@@ -1,7 +1,7 @@
 import { alertKey, detectEventType, formatMessage, isDeliverableEventType, isExplicitlySupportedAlert } from "./lib.js";
 import { parseNotifierTarget } from "./notifier-target.js";
 import { buildPresetAlert } from "./preset-alerts.js";
-import { buildOutboxJobs, handleUnsupportedAlert } from "./alert-enqueue-helpers.js";
+import { handleUnsupportedAlert } from "./alert-enqueue-helpers.js";
 
 export function buildTargetLogFields(chatId = "") {
   const target = parseNotifierTarget(chatId);
@@ -46,22 +46,50 @@ export function createAlertEnqueuer({
   runtimeState,
   locations,
   targetChatIds,
-  notificationOutbox,
+  alertSinks = [],
   buildOpsTargetLabel,
   buildSeenSourceAlertKey,
 } = {}) {
-  function requireNotificationOutbox() {
-    if (!notificationOutbox) {
-      throw new Error("POLLER_DATABASE_URL is required");
+  function requireAlertSinks() {
+    if (!Array.isArray(alertSinks) || alertSinks.length === 0) {
+      throw new Error("At least one alert sink must be configured");
     }
 
-    return notificationOutbox;
+    return alertSinks;
+  }
+
+  async function ensureAlertSinksReady() {
+    for (const sink of requireAlertSinks()) {
+      await sink.ensureReady?.();
+    }
+  }
+
+  async function recordDuplicateAlert({
+    alert,
+    matched,
+    chatIds = targetChatIds,
+    eventType,
+    semanticKey,
+    sourceKey,
+  } = {}) {
+    if (!semanticKey) return;
+
+    for (const sink of requireAlertSinks()) {
+      await sink.recordDuplicate?.({
+        alert,
+        matched,
+        chatIds,
+        eventType,
+        semanticKey,
+        sourceKey,
+      });
+    }
   }
 
   async function enqueueAlertNotifications(
     alert,
     matched,
-    { chatIds = targetChatIds } = {},
+    { chatIds = targetChatIds, semanticKey = "" } = {},
   ) {
     if (!runtimeState.deliveryEnabled) {
       logger.warn("enqueue_skipped_muted", {
@@ -103,68 +131,71 @@ export function createAlertEnqueuer({
       });
     }
 
-    const outbox = requireNotificationOutbox();
     const caption = formatMessage(alert, matched, { eventType });
     const sourceKey = buildSeenSourceAlertKey(alert);
-    const enqueueNowMs = Date.now();
-    const { jobs } = buildOutboxJobs({
-      alert,
-      matched,
-      chatIds,
-      eventType,
-      sourceKey,
-      nowMs: enqueueNowMs,
-    });
+    const sinks = requireAlertSinks();
 
     logger.info("alert_matched", {
       ...buildAlertLogFields(alert, matched, { eventType, sourceKey, buildSeenSourceAlertKey }),
       target_count: chatIds.length,
     });
-    const enqueueResults = await outbox.enqueueMany(jobs, enqueueNowMs);
-    const targets = enqueueResults.map((result, index) => ({
-      skipped: !result.enqueued,
-      key: jobs[index].deliveryKey,
-      eventType,
-      reason: result.reason,
-      chatId: jobs[index].chatId,
-      outboxId: result.id,
-      outboxStatus: result.status,
-    }));
-    const enqueuedTargets = targets.filter((target) => !target.skipped);
-    const duplicateTargets = targets.filter((target) => target.reason === "duplicate");
+    const runnableSinks = [];
 
-    for (const target of targets) {
-      const baseFields = {
-        ...buildAlertLogFields(alert, matched, { eventType, sourceKey, buildSeenSourceAlertKey }),
-        outbox_id: target.outboxId || null,
-        outbox_status: target.outboxStatus || null,
-        delivery_key: target.key,
-        ...buildTargetLogFields(target.chatId),
-      };
-
-      if (target.skipped) {
-        suppressionReporter.record("duplicate_enqueue", target.key, {
-          ...baseFields,
-          reason: target.reason,
-        });
-        logger.debug("outbox_job_duplicate", {
-          ...baseFields,
-          reason: target.reason,
+    for (const sink of sinks) {
+      if (sink.requiresTargets && chatIds.length === 0) {
+        logger.warn("alert_sink_skipped_no_targets", {
+          sink: sink.name || "unknown",
+          ...buildAlertLogFields(alert, matched, { eventType, sourceKey, buildSeenSourceAlertKey }),
         });
         continue;
       }
-
-      logger.info("outbox_job_enqueued", baseFields);
+      runnableSinks.push(sink);
     }
 
+    if (runnableSinks.length === 0) {
+      return {
+        skipped: true,
+        reason: "no_targets",
+        eventType,
+        targets: [],
+        sinkResults: [],
+      };
+    }
+
+    const sinkResults = [];
+    for (const sink of runnableSinks) {
+      sinkResults.push(await sink.dispatch({
+        alert,
+        matched,
+        chatIds,
+        eventType,
+        semanticKey,
+        sourceKey,
+      }));
+    }
+
+    const targets = sinkResults.flatMap((result) => result.targets || []);
+    const enqueuedCount = sinkResults.reduce(
+      (total, result) => total + Number(result.acceptedCount || 0),
+      0,
+    );
+    const duplicateCount = sinkResults.reduce(
+      (total, result) => total + Number(result.duplicateCount || 0),
+      0,
+    );
+    const reason = enqueuedCount === 0
+      ? sinkResults.find((result) => result.reason)?.reason || "no_targets"
+      : undefined;
+
     return {
-      skipped: enqueuedTargets.length === 0,
-      reason: enqueuedTargets.length === 0 ? "duplicate" : undefined,
+      skipped: enqueuedCount === 0,
+      reason,
       eventType,
       caption,
-      enqueuedCount: enqueuedTargets.length,
-      duplicateCount: duplicateTargets.length,
+      enqueuedCount,
+      duplicateCount,
       targets,
+      sinkResults,
       chatId: targets.length === 1 ? targets[0].chatId : undefined,
     };
   }
@@ -176,7 +207,8 @@ export function createAlertEnqueuer({
     desc = "זוהי הודעת בדיקה בלבד",
     idPrefix = "preset-alert",
   } = {}) {
-    if (!Array.isArray(chatIds) || chatIds.length === 0) {
+    const needsTargets = requireAlertSinks().some((sink) => sink.requiresTargets);
+    if (needsTargets && (!Array.isArray(chatIds) || chatIds.length === 0)) {
       throw new Error("No targets configured");
     }
 
@@ -196,7 +228,9 @@ export function createAlertEnqueuer({
   }
 
   return {
-    requireNotificationOutbox,
+    requireAlertSinks,
+    ensureAlertSinksReady,
+    recordDuplicateAlert,
     enqueuePresetAlert,
     enqueueAlertNotifications,
     buildTargetLogFields,

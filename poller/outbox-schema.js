@@ -14,16 +14,19 @@ export const RESERVE_OUTBOX_JOBS_SQL = `
 with jobs as (
   select id
   from ${NOTIFICATION_OUTBOX_TABLE}
-  where (
-    status = 'pending'
-    and available_at <= now()
-  ) or (
-    status = 'failed'
-    and available_at <= now()
-  ) or (
-    status = 'processing'
-    and dispatch_started_at is null
-    and processing_started_at <= $1
+  where coalesce(is_duplicate, false) = false
+    and (
+      (
+        status = 'pending'
+        and available_at <= now()
+      ) or (
+        status = 'failed'
+        and available_at <= now()
+      ) or (
+        status = 'processing'
+        and dispatch_started_at is null
+        and processing_started_at <= $1
+      )
   )
   order by available_at asc, id asc
   limit $2
@@ -45,6 +48,7 @@ const CREATE_OUTBOX_TABLE_SQL = `
 create table if not exists ${NOTIFICATION_OUTBOX_TABLE} (
   id bigserial primary key,
   delivery_key text not null,
+  semantic_key text,
   source_key text not null,
   source text not null,
   event_type text not null,
@@ -52,6 +56,8 @@ create table if not exists ${NOTIFICATION_OUTBOX_TABLE} (
   source_received_at timestamptz,
   payload_json jsonb not null,
   status text not null,
+  duplicate_count integer not null default 0,
+  is_duplicate boolean not null default false,
   attempt_count integer not null default 0,
   available_at timestamptz not null default now(),
   processing_started_at timestamptz,
@@ -77,9 +83,34 @@ alter table ${NOTIFICATION_OUTBOX_TABLE}
 add column if not exists source_received_at timestamptz
 `;
 
+const ADD_SEMANTIC_KEY_COLUMN_SQL = `
+alter table ${NOTIFICATION_OUTBOX_TABLE}
+add column if not exists semantic_key text
+`;
+
+const ADD_DUPLICATE_COUNT_COLUMN_SQL = `
+alter table ${NOTIFICATION_OUTBOX_TABLE}
+add column if not exists duplicate_count integer not null default 0
+`;
+
+const ADD_IS_DUPLICATE_COLUMN_SQL = `
+alter table ${NOTIFICATION_OUTBOX_TABLE}
+add column if not exists is_duplicate boolean not null default false
+`;
+
+const DROP_DELIVERY_KEY_INDEX_SQL = `
+drop index if exists ${NOTIFICATION_OUTBOX_SCHEMA}.notification_outbox_delivery_key_idx
+`;
+
 const CREATE_DELIVERY_KEY_INDEX_SQL = `
 create unique index if not exists notification_outbox_delivery_key_idx
-on ${NOTIFICATION_OUTBOX_TABLE} (delivery_key);
+on ${NOTIFICATION_OUTBOX_TABLE} (delivery_key)
+where coalesce(is_duplicate, false) = false;
+`;
+
+const CREATE_SEMANTIC_KEY_INDEX_SQL = `
+create index if not exists notification_outbox_semantic_key_idx
+on ${NOTIFICATION_OUTBOX_TABLE} (semantic_key);
 `;
 
 const CREATE_STATUS_AVAILABLE_INDEX_SQL = `
@@ -102,7 +133,12 @@ export async function ensureOutboxSchema(db) {
   await db.query(CREATE_OUTBOX_TABLE_SQL);
   await db.query(ADD_DEAD_LETTERED_AT_COLUMN_SQL);
   await db.query(ADD_SOURCE_RECEIVED_AT_COLUMN_SQL);
+  await db.query(ADD_SEMANTIC_KEY_COLUMN_SQL);
+  await db.query(ADD_DUPLICATE_COUNT_COLUMN_SQL);
+  await db.query(ADD_IS_DUPLICATE_COLUMN_SQL);
+  await db.query(DROP_DELIVERY_KEY_INDEX_SQL);
   await db.query(CREATE_DELIVERY_KEY_INDEX_SQL);
+  await db.query(CREATE_SEMANTIC_KEY_INDEX_SQL);
   await db.query(CREATE_STATUS_AVAILABLE_INDEX_SQL);
   await db.query(CREATE_PROCESSING_INDEX_SQL);
   await db.query(CREATE_SENT_INDEX_SQL);

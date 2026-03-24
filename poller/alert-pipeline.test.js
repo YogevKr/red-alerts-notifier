@@ -30,6 +30,7 @@ describe("createAlertPipeline", () => {
       detectEventType: () => "active_alert",
       isExplicitlySupportedAlert: () => true,
       isDeliverableEventType: () => true,
+      hasDeliveredKey: () => false,
       rememberDeliveredKey: () => true,
       hashDeliveryKey: (value) => value,
       buildDeliveryKey: () => "delivery-key",
@@ -84,6 +85,7 @@ describe("createAlertPipeline", () => {
       detectEventType: () => "active_alert",
       isExplicitlySupportedAlert: () => true,
       isDeliverableEventType: () => true,
+      hasDeliveredKey: () => false,
       rememberDeliveredKey: () => true,
       hashDeliveryKey: (value) => value,
       buildDeliveryKey: () => "delivery-key",
@@ -101,6 +103,45 @@ describe("createAlertPipeline", () => {
       type: "seen_source_alert",
       key: "seen-key",
     }]);
+  });
+
+  it("suppresses semantic duplicates before enqueue and records them", async () => {
+    const duplicates = [];
+    const pipeline = createAlertPipeline({
+      suppressionReporter: { record() {} },
+      matchLocations: () => ["תל אביב - יפו"],
+      locations: ["תל אביב - יפו"],
+      buildSeenSourceAlertKey: () => "seen-key",
+      hasSeenSourceAlertKey: () => false,
+      rememberSeenSourceAlertKey: () => true,
+      enqueueAlertNotifications: async () => {
+        assert.fail("enqueueAlertNotifications should not be called");
+      },
+      targetChatIds: ["telegram:123456789"],
+      parseEventDate: () => new Date("2026-03-23T12:00:00.000Z"),
+      buildAlertLogFields: () => ({}),
+      detectEventType: () => "active_alert",
+      buildSemanticAlertKey: () => "semantic-key",
+      isExplicitlySupportedAlert: () => true,
+      isDeliverableEventType: () => true,
+      hasDeliveredKey: () => true,
+      rememberDeliveredKey: () => true,
+      recordDuplicateAlert: async (payload) => {
+        duplicates.push(payload);
+      },
+      hashDeliveryKey: (value) => value,
+      buildDeliveryKey: () => "delivery-key",
+    });
+
+    const result = await pipeline.ingestAlert({
+      id: "1",
+      source: "oref_alerts",
+      alertDate: "2026-03-23 12:00:00",
+      data: ["תל אביב - יפו"],
+    });
+
+    assert.equal(result.reason, "duplicate");
+    assert.equal(duplicates[0].semanticKey, "semantic-key");
   });
 
   it("seeds delivery keys only for matched deliverable alerts", async () => {
@@ -121,8 +162,10 @@ describe("createAlertPipeline", () => {
       parseEventDate: () => new Date("2026-03-23T12:00:00.000Z"),
       buildAlertLogFields: () => ({}),
       detectEventType: () => "all_clear",
+      buildSemanticAlertKey: () => "semantic-key",
       isExplicitlySupportedAlert: () => true,
       isDeliverableEventType: () => true,
+      hasDeliveredKey: () => false,
       rememberDeliveredKey: (key) => {
         delivered.push(key);
         return true;
@@ -141,6 +184,7 @@ describe("createAlertPipeline", () => {
 
     assert.deepEqual(seen, ["alert:1"]);
     assert.deepEqual(delivered, [
+      "semantic-key",
       "hash:telegram:1:all_clear:תל אביב - יפו",
       "hash:telegram:2:all_clear:תל אביב - יפו",
     ]);

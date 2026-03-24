@@ -31,7 +31,7 @@ function createRuntime(now = Date.parse("2026-03-18T21:02:00.000Z"), overrides =
     lastPollErrorAt: null,
     lastPollError: null,
     dbDisconnectedSince: null,
-    dbDatabaseName: "evolution",
+    dbDatabaseName: "red_alerts",
     outboxLastCheckedAt: null,
     outboxLastError: null,
     ...(overrides.monitor || {}),
@@ -76,7 +76,7 @@ function createRuntime(now = Date.parse("2026-03-18T21:02:00.000Z"), overrides =
     checkDbConnection: async (_, checkNow) => ({
       checkedAt: new Date(checkNow).toISOString(),
       latencyMs: 2,
-      databaseName: "evolution",
+      databaseName: "red_alerts",
       serverTime: new Date(checkNow).toISOString(),
     }),
     hasExceededThreshold,

@@ -145,7 +145,7 @@ describe("Pushy API requests", () => {
     });
     assert.deepEqual(result, {
       valid: true,
-      blocked: false,
+      validationStatus: "ok",
       response: { success: true },
     });
   });
@@ -171,6 +171,26 @@ describe("Pushy API requests", () => {
     assert.deepEqual(JSON.parse(requests[0].options.body), {
       token: "device-token",
       auth: "device-auth",
+    });
+  });
+
+  it("treats 403 auth responses as usable but forbidden validation", async () => {
+    const result = await validateOrefMqttCredentials({
+      token: "device-token",
+      auth: "device-auth",
+      fetchImpl: async () => ({
+        ok: false,
+        status: 403,
+        async text() {
+          return "forbidden";
+        },
+      }),
+    });
+
+    assert.deepEqual(result, {
+      valid: true,
+      validationStatus: "forbidden",
+      error: "https://pushy.ioref.app/devices/auth responded 403: forbidden",
     });
   });
 });

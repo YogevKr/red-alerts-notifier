@@ -36,10 +36,15 @@ import { PostgresNotificationOutbox } from "./notification-outbox.js";
 import { loadNotifierState } from "./notifier-service.js";
 import { createLogger, createSuppressionReporter } from "./log.js";
 import { startHttpServer } from "./http-server.js";
+import {
+  ALERT_SINK_NAMES,
+  createLogAlertSink,
+  createNotificationOutboxAlertSink,
+} from "./alert-sinks.js";
 import { createPagerDutyRuntime } from "./pagerduty-runtime.js";
 import { createPollRuntime } from "./poll-runtime.js";
 import { createEvolutionClient } from "./evolution-client.js";
-import { createAlertEnqueuer } from "./alert-enqueue.js";
+import { buildAlertLogFields, buildTargetLogFields, createAlertEnqueuer } from "./alert-enqueue.js";
 import { createAlertPipeline } from "./alert-pipeline.js";
 import { getSourceFailureSnapshot } from "./monitor-state.js";
 import {
@@ -65,6 +70,7 @@ export function createPollerApp(config = {}) {
     targetChatIds = [],
     testChatIds = [],
     configuredNotifierTransports = [],
+    alertSinks: alertSinkConfig = {},
     evolution = {},
     timing = {},
     delivery = {},
@@ -121,6 +127,7 @@ export function createPollerApp(config = {}) {
     buildRecentSentMessage,
     buildRecentFlowMessage,
     getLatestAlertFlowSnapshot,
+    hasDeliveredKey,
     rememberRecentAlertFlow,
     rememberDeliveredKey,
     pruneDeliveredKeys,
@@ -140,13 +147,19 @@ export function createPollerApp(config = {}) {
     className: pagerDutyConfig.className,
     filePath: paths.pagerDutyStatePath,
   });
-  const dbPool = database.pollerUrl
+  const configuredAlertSinkNames = Array.isArray(alertSinkConfig.names)
+    ? [...new Set(alertSinkConfig.names)]
+    : [];
+  const notificationOutboxEnabled = configuredAlertSinkNames.includes(
+    ALERT_SINK_NAMES.NOTIFICATION_OUTBOX,
+  );
+  const dbPool = notificationOutboxEnabled && database.pollerUrl
     ? createDbPool({
       connectionString: database.pollerUrl,
       applicationName: "red-alerts-poller",
     })
     : null;
-  const notificationOutbox = dbPool
+  const notificationOutbox = notificationOutboxEnabled && dbPool
     ? new PostgresNotificationOutbox({ pool: dbPool })
     : null;
   const suppressionReporter = createSuppressionReporter(logger, {
@@ -235,12 +248,30 @@ export function createPollerApp(config = {}) {
     pruneDeliveredKeys,
     toIsoString,
   });
+  const scopedBuildAlertLogFields = (alert, matched, options = {}) =>
+    buildAlertLogFields(alert, matched, { ...options, buildSeenSourceAlertKey });
+  const alertSinks = configuredAlertSinkNames.map((sinkName) => {
+    if (sinkName === ALERT_SINK_NAMES.NOTIFICATION_OUTBOX) {
+      return createNotificationOutboxAlertSink({
+        notificationOutbox,
+        logger,
+        suppressionReporter,
+        buildAlertLogFields: scopedBuildAlertLogFields,
+        buildTargetLogFields,
+      });
+    }
+
+    return createLogAlertSink({
+      logger,
+      buildAlertLogFields: scopedBuildAlertLogFields,
+    });
+  });
   const {
-    requireNotificationOutbox,
+    ensureAlertSinksReady,
+    recordDuplicateAlert,
     enqueuePresetAlert,
     enqueueAlertNotifications,
-    buildTargetLogFields,
-    buildAlertLogFields,
+    buildAlertLogFields: buildRuntimeAlertLogFields,
     summarizeSourceResults,
   } = createAlertEnqueuer({
     logger,
@@ -249,7 +280,7 @@ export function createPollerApp(config = {}) {
     runtimeState,
     locations,
     targetChatIds,
-    notificationOutbox,
+    alertSinks,
     buildOpsTargetLabel,
     buildSeenSourceAlertKey,
   });
@@ -267,21 +298,23 @@ export function createPollerApp(config = {}) {
     enqueueAlertNotifications,
     targetChatIds,
     parseEventDate,
-    buildAlertLogFields,
+    buildAlertLogFields: buildRuntimeAlertLogFields,
     detectEventType,
     buildSemanticAlertKey,
     isExplicitlySupportedAlert,
     isDeliverableEventType,
     rememberRecentAlertFlow,
     toIsoString,
+    hasDeliveredKey,
     rememberDeliveredKey,
+    recordDuplicateAlert,
     hashDeliveryKey,
     buildDeliveryKey,
   });
   function handleRealtimeAlert(alert) {
     void ingestAlert(alert).catch((err) => {
       logger.error("realtime_alert_process_failed", {
-        ...buildAlertLogFields(alert, matchLocations(alert, locations)),
+        ...buildRuntimeAlertLogFields(alert, matchLocations(alert, locations)),
         error: err,
       });
     });
@@ -309,6 +342,8 @@ export function createPollerApp(config = {}) {
   });
 
   async function start() {
+    const shouldManageWhatsApp = notificationOutboxEnabled
+      && configuredNotifierTransports.includes("whatsapp");
     logger.info("poller_starting", {
       poll_interval_ms: timing.defaultPollIntervalMs,
       poll_tick_interval_ms: timing.pollTickIntervalMs,
@@ -318,30 +353,34 @@ export function createPollerApp(config = {}) {
       targets: targetChatIds,
       target_transports: [...new Set(targetChatIds.map((chatId) => buildTargetLogFields(chatId).transport))],
       notifier_transports: configuredNotifierTransports,
+      alert_sinks: configuredAlertSinkNames,
       active_sources: sources.activeNames,
       oref_mqtt_enabled: orefMqtt.enabled,
       oref_mqtt_topics: orefMqtt.topics,
       oref_mqtt_raw_log_enabled: orefMqtt.rawLogEnabled,
       tzevaadom_enabled: tzevaadom.enabled,
       tzevaadom_raw_log_enabled: tzevaadom.rawLogEnabled,
-      notification_outbox_enabled: Boolean(notificationOutbox),
+      notification_outbox_enabled: notificationOutboxEnabled,
       debug_capture_enabled: debugCaptureStores.enabled,
       log_suppression_interval_ms: timing.logSuppressionIntervalMs,
     });
-    requireNotificationOutbox();
-    await notificationOutbox.ensureSchema();
-    logger.info("poller_outbox_schema_ready");
+    await ensureAlertSinksReady();
+    logger.info("poller_alert_sinks_ready", {
+      alert_sinks: configuredAlertSinkNames,
+    });
 
-    try {
-      await ensureEvolutionInstance();
-      logger.info("evolution_instance_ready", {
-        instance_name: evolution.instance,
-      });
-    } catch (err) {
-      logger.warn("evolution_instance_not_ready", {
-        instance_name: evolution.instance,
-        error: err,
-      });
+    if (shouldManageWhatsApp) {
+      try {
+        await ensureEvolutionInstance();
+        logger.info("evolution_instance_ready", {
+          instance_name: evolution.instance,
+        });
+      } catch (err) {
+        logger.warn("evolution_instance_not_ready", {
+          instance_name: evolution.instance,
+          error: err,
+        });
+      }
     }
 
     try {
@@ -377,7 +416,12 @@ export function createPollerApp(config = {}) {
       enqueuePresetAlert,
       simulateAlerts,
       enqueueAlertNotifications,
-      getEvolutionConnectInfo,
+      getEvolutionConnectInfo: async () => {
+        if (!shouldManageWhatsApp) {
+          throw new Error("WhatsApp management is unavailable without the notification_outbox sink");
+        }
+        return getEvolutionConnectInfo();
+      },
       evolutionInstance: evolution.instance,
       summarizeDebugCaptureStores,
       debugCaptureStores,

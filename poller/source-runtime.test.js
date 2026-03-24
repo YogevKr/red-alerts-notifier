@@ -409,7 +409,7 @@ describe("createOrefMqttSourceRuntime", () => {
         },
       }),
       fetchCityMap: async () => new Map([["1405", "תל אביב - יפו"]]),
-      validateCredentials: async () => ({ valid: true, blocked: true }),
+      validateCredentials: async () => ({ valid: true, validationStatus: "forbidden" }),
       registerDevice: async () => {
         throw new Error("register should not be called");
       },
@@ -441,7 +441,8 @@ describe("createOrefMqttSourceRuntime", () => {
       androidId: "persisted-android-id",
     });
     assert.equal(snapshot.oref_mqtt.cityCount, 1);
-    assert.equal(snapshot.oref_mqtt.credentialsBlocked, true);
+    assert.equal(snapshot.oref_mqtt.credentialsValidationStatus, "forbidden");
+    assert.equal(snapshot.oref_mqtt.credentialsUsable, true);
     assert.equal(snapshot.oref_mqtt.credentialsError, null);
     assert.ok(snapshot.oref_mqtt.credentialsLoadedAt);
     assert.ok(snapshot.oref_mqtt.topicsSubscribedAt);

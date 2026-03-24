@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveConfiguredAlertSinkNames } from "./alert-sinks.js";
 import { parseBooleanEnv } from "./debug-capture.js";
 import { parseLocations, parseChatTargets, resolveChatIds } from "./lib.js";
 import { parseNotifierTarget } from "./notifier-target.js";
@@ -68,7 +69,7 @@ export function resolveConfiguredNotifierTransports(csv = "", chatIds = []) {
       .filter(Boolean),
   )];
 
-  return derived.length > 0 ? derived : ["whatsapp"];
+  return derived;
 }
 
 export function createPollerConfig(env = process.env) {
@@ -86,6 +87,7 @@ export function createPollerConfig(env = process.env) {
     DEBUG_CAPTURE_MAX_ENTRIES = "10000",
     TEST_NOTIFICATION_TARGETS = "",
     NOTIFIER_ACTIVE_TRANSPORTS = "",
+    ALERT_SINKS = "",
     ACTIVE_SOURCES = "",
     OREF_MQTT_ENABLED = "false",
     OREF_MQTT_RECONNECT_MS = "5000",
@@ -141,6 +143,9 @@ export function createPollerConfig(env = process.env) {
     NOTIFIER_ACTIVE_TRANSPORTS,
     targetChatIds,
   );
+  const configuredAlertSinkNames = resolveConfiguredAlertSinkNames(ALERT_SINKS, {
+    databaseUrl: POLLER_DATABASE_URL,
+  });
   const orefMqttEnabled = parseBooleanEnv(OREF_MQTT_ENABLED);
   const orefMqttReconnectDelayMs = parsePositiveIntEnv(OREF_MQTT_RECONNECT_MS, 5000);
   const tzevaadomEnabled = parseBooleanEnv(TZEVAADOM_ENABLED);
@@ -167,6 +172,9 @@ export function createPollerConfig(env = process.env) {
     targetChatIds,
     testChatIds,
     configuredNotifierTransports,
+    alertSinks: {
+      names: configuredAlertSinkNames,
+    },
     sources: {
       activeNames: sourceGroups.activeNames,
       polledNames: sourceGroups.polledNames,

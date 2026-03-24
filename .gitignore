@@ -5,4 +5,7 @@
 node_modules/
 poller/node_modules/
 poller/data/
+poller/overrides/message-templates.override.json
+poller/overrides/assets/*
+!poller/overrides/assets/.gitkeep
 *.log

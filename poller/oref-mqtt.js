@@ -301,21 +301,21 @@ export async function validateOrefMqttCredentials({
     });
     return {
       valid: Boolean(response?.success),
-      blocked: false,
+      validationStatus: "ok",
       response,
     };
   } catch (err) {
     if (Number(err?.status) === 403) {
       return {
         valid: true,
-        blocked: true,
+        validationStatus: "forbidden",
         error: err.message,
       };
     }
 
     return {
       valid: false,
-      blocked: false,
+      validationStatus: "invalid",
       error: err.message,
     };
   }
