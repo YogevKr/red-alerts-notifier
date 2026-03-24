@@ -2,6 +2,10 @@
 
 Self-hosted notification system for Israeli Home Front Command (Pikud HaOref) rocket and missile alerts. Monitors multiple official and third party alert sources in real time, filters by your configured locations, and delivers instant notifications to WhatsApp and Telegram.
 
+## Disclaimer
+
+This project is provided as-is, without warranties or guarantees of availability, accuracy, timeliness, or fitness for any purpose. It is not an official Home Front Command service, and you are solely responsible for how you deploy and use it. Do not rely on it as your only source for safety-critical alerts. The author is not responsible for missed alerts, delayed alerts, delivery failures, outages, misuse, or any direct or indirect damages.
+
 ## Why
 
 During escalations, getting alerts fast and reliably matters. This system:
@@ -139,7 +143,6 @@ npm test
 ## Documentation
 
 - [Alert sources](docs/sources.md) — source channels, polling behavior, debug captures
-- [Alert flow](docs/current-oref-flow.md) — normalization, event mapping, deduplication logic
 - [Deployment](docs/deploy.md) — setup, config reference, WhatsApp pairing
 
 ## License
