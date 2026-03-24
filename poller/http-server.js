@@ -162,7 +162,7 @@ export function startHttpServer({
 
     if (url.pathname === "/ops/recent_received" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "5", 10);
-      writeJson(res, 200, { ok: true, message: buildRecentReceivedMessage(limit) });
+      writeJson(res, 200, { ok: true, message: await buildRecentReceivedMessage(limit) });
       return;
     }
 

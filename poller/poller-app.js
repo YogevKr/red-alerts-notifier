@@ -55,6 +55,7 @@ import {
 } from "./source-runtime.js";
 import { createPollerSourceSubsystem } from "./poller-source-subsystem.js";
 import { createPollerHealthSubsystem } from "./poller-health-subsystem.js";
+import { PostgresSourceEventLedger } from "./source-event-ledger.js";
 
 function toIsoString(timestampMs = Date.now()) {
   return new Date(timestampMs).toISOString();
@@ -80,6 +81,7 @@ export function createPollerApp(config = {}) {
     tzevaadom = {},
     pagerDuty: pagerDutyConfig = {},
     database = {},
+    sourceEventLedger: sourceEventLedgerConfig = {},
     paths = {},
     limits = {},
   } = config;
@@ -127,6 +129,7 @@ export function createPollerApp(config = {}) {
     buildRecentSentMessage,
     buildRecentFlowMessage,
     getLatestAlertFlowSnapshot,
+    setRecentSourceEventsLoader,
     hasDeliveredKey,
     rememberRecentAlertFlow,
     rememberDeliveredKey,
@@ -153,7 +156,8 @@ export function createPollerApp(config = {}) {
   const notificationOutboxEnabled = configuredAlertSinkNames.includes(
     ALERT_SINK_NAMES.NOTIFICATION_OUTBOX,
   );
-  const dbPool = notificationOutboxEnabled && database.pollerUrl
+  const dbRequired = notificationOutboxEnabled || sourceEventLedgerConfig.enabled;
+  const dbPool = dbRequired && database.pollerUrl
     ? createDbPool({
       connectionString: database.pollerUrl,
       applicationName: "red-alerts-poller",
@@ -162,6 +166,13 @@ export function createPollerApp(config = {}) {
   const notificationOutbox = notificationOutboxEnabled && dbPool
     ? new PostgresNotificationOutbox({ pool: dbPool })
     : null;
+  const sourceEventLedger = sourceEventLedgerConfig.enabled && dbPool
+    ? new PostgresSourceEventLedger({ pool: dbPool })
+    : null;
+  setRecentSourceEventsLoader(async (activeSources, limitPerSource) => {
+    if (!sourceEventLedger) return [];
+    return sourceEventLedger.listRecentBySource(activeSources, limitPerSource);
+  });
   const suppressionReporter = createSuppressionReporter(logger, {
     intervalMs: timing.logSuppressionIntervalMs,
   });
@@ -304,6 +315,19 @@ export function createPollerApp(config = {}) {
     isExplicitlySupportedAlert,
     isDeliverableEventType,
     rememberRecentAlertFlow,
+    recordSourceEvent: async (entry = {}) => {
+      if (!sourceEventLedger) return;
+      try {
+        await sourceEventLedger.record(entry);
+      } catch (err) {
+        logger.warn("source_event_ledger_record_failed", {
+          source: entry.source || "unknown",
+          source_key: entry.sourceKey || "",
+          outcome: entry.outcome || "unknown",
+          error: err,
+        });
+      }
+    },
     toIsoString,
     hasDeliveredKey,
     rememberDeliveredKey,
@@ -354,6 +378,7 @@ export function createPollerApp(config = {}) {
       target_transports: [...new Set(targetChatIds.map((chatId) => buildTargetLogFields(chatId).transport))],
       notifier_transports: configuredNotifierTransports,
       alert_sinks: configuredAlertSinkNames,
+      source_event_ledger_enabled: Boolean(sourceEventLedger),
       active_sources: sources.activeNames,
       oref_mqtt_enabled: orefMqtt.enabled,
       oref_mqtt_topics: orefMqtt.topics,
@@ -364,6 +389,14 @@ export function createPollerApp(config = {}) {
       debug_capture_enabled: debugCaptureStores.enabled,
       log_suppression_interval_ms: timing.logSuppressionIntervalMs,
     });
+    if (sourceEventLedgerConfig.enabled && !dbPool) {
+      logger.warn("source_event_ledger_disabled_no_db", {
+        database_configured: Boolean(database.pollerUrl),
+      });
+    }
+    if (sourceEventLedger) {
+      await sourceEventLedger.ensureSchema();
+    }
     await ensureAlertSinksReady();
     logger.info("poller_alert_sinks_ready", {
       alert_sinks: configuredAlertSinkNames,

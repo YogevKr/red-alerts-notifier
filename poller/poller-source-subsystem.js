@@ -64,6 +64,7 @@ export function createPollerSourceSubsystem({
     hashDeliveryKey,
     listDebugCaptureEntries,
     debugCaptureStores,
+    activeSourceNames: sources.activeNames,
     locations,
     logger,
   });

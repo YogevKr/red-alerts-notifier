@@ -117,14 +117,42 @@ function buildFlowSummary(group = {}) {
   const steps = Array.isArray(group.steps) ? group.steps : [];
   if (steps.length === 0) return "";
   const firstStepAtMs = steps[0]?.atMs ?? null;
-  return steps
+  const compressedSteps = [];
+
+  for (const step of steps) {
+    const previous = compressedSteps[compressedSteps.length - 1];
+    if (
+      previous
+      && previous.source === step.source
+      && previous.outcome === step.outcome
+    ) {
+      previous.count += 1;
+      previous.lastAt = step.at;
+      previous.lastAtMs = step.atMs;
+      continue;
+    }
+
+    compressedSteps.push({
+      ...step,
+      count: 1,
+      lastAt: step.at,
+      lastAtMs: step.atMs,
+    });
+  }
+
+  const summary = compressedSteps
     .map((step) => {
       const deltaSuffix = Number.isFinite(firstStepAtMs) && Number.isFinite(step.atMs)
         ? ` (+${formatTimelineDelta(step.atMs - firstStepAtMs)})`
         : "";
-      return `${step.source}:${step.outcome}${deltaSuffix}`;
+      const countSuffix = step.count > 1 ? ` x${step.count}` : "";
+      return `${step.source}:${step.outcome}${deltaSuffix}${countSuffix}`;
     })
     .join(" -> ");
+
+  return summary.length > 500
+    ? `${summary.slice(0, 497)}...`
+    : summary;
 }
 
 function formatFlowStep(step = {}, firstStepAtMs = null) {

@@ -54,4 +54,17 @@ describe("createPollerConfig", () => {
     ]);
     assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
   });
+
+  it("keeps source event ledger off by default and allows opt-in", () => {
+    const defaultConfig = createPollerConfig({
+      WHATSAPP_TARGETS: "telegram:1",
+    });
+    const enabledConfig = createPollerConfig({
+      WHATSAPP_TARGETS: "telegram:1",
+      SOURCE_EVENT_LEDGER_ENABLED: "true",
+    });
+
+    assert.equal(defaultConfig.sourceEventLedger.enabled, false);
+    assert.equal(enabledConfig.sourceEventLedger.enabled, true);
+  });
 });

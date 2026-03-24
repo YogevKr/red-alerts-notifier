@@ -23,6 +23,7 @@ export function createAlertPipeline({
   isExplicitlySupportedAlert,
   isDeliverableEventType,
   rememberRecentAlertFlow = () => {},
+  recordSourceEvent = async () => {},
   toIsoString = (timestampMs = Date.now()) => new Date(timestampMs).toISOString(),
   hasDeliveredKey = () => false,
   rememberDeliveredKey,
@@ -48,14 +49,28 @@ export function createAlertPipeline({
     };
   }
 
-  function rememberFlow(context, outcome) {
+  async function rememberFlow(context, outcome) {
+    const observedAt = toIsoString();
     rememberRecentAlertFlow({
-      observedAt: toIsoString(),
+      observedAt,
       receivedAt: context.alert?.receivedAt || null,
       alertDate: context.alert?.alertDate || null,
       source: context.alert?.source || "unknown",
       eventType: context.eventType,
       title: context.alert?.title || "",
+      matchedLocations: context.matched,
+      semanticKey: context.semanticKey,
+      sourceKey: context.sourceKey,
+      outcome,
+    });
+    await recordSourceEvent({
+      observedAt,
+      receivedAt: context.alert?.receivedAt || null,
+      alertDate: context.alert?.alertDate || null,
+      source: context.alert?.source || "unknown",
+      eventType: context.eventType,
+      title: context.alert?.title || "",
+      rawLocations: Array.isArray(context.alert?.data) ? context.alert.data : [],
       matchedLocations: context.matched,
       semanticKey: context.semanticKey,
       sourceKey: context.sourceKey,
@@ -78,6 +93,7 @@ export function createAlertPipeline({
   } = {}) {
     const context = inspectAlert(alert);
     if (context.matched.length === 0) {
+      await rememberFlow(context, "location_miss");
       return {
         ...context,
         matchedAlert: false,
@@ -95,7 +111,7 @@ export function createAlertPipeline({
         summary.seen_skipped_count += 1;
       }
       recordSeenSuppression(context);
-      rememberFlow(context, "seen_source_alert");
+      await rememberFlow(context, "seen_source_alert");
       return {
         ...context,
         matchedAlert: true,
@@ -116,7 +132,7 @@ export function createAlertPipeline({
         semanticKey: context.semanticKey,
         sourceKey: context.sourceKey,
       });
-      rememberFlow(context, "duplicate");
+      await rememberFlow(context, "duplicate");
       return {
         ...context,
         matchedAlert: true,
@@ -134,7 +150,7 @@ export function createAlertPipeline({
       summary.enqueued_target_count += enqueueResult.enqueuedCount || 0;
       summary.duplicate_enqueue_count += enqueueResult.duplicateCount || 0;
     }
-    rememberFlow(
+    await rememberFlow(
       context,
       enqueueResult.reason || (enqueueResult.skipped ? "skipped" : "enqueued"),
     );

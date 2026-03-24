@@ -103,6 +103,7 @@ export function createPollerConfig(env = process.env) {
     OREF_HISTORY_POLL_INTERVAL_MS = "",
     POLL_INTERVAL_MS = "10000",
     POLLER_DATABASE_URL = "",
+    SOURCE_EVENT_LEDGER_ENABLED = "false",
     ALERT_LOCATIONS = "",
     PAGERDUTY_ROUTING_KEY = "",
     PAGERDUTY_EVENTS_URL = DEFAULT_PAGERDUTY_EVENTS_URL,
@@ -240,6 +241,9 @@ export function createPollerConfig(env = process.env) {
     },
     database: {
       pollerUrl: String(POLLER_DATABASE_URL || "").trim(),
+    },
+    sourceEventLedger: {
+      enabled: parseBooleanEnv(SOURCE_EVENT_LEDGER_ENABLED),
     },
     paths: {
       dedupeStorePath: join(appDir, "data", "sent-alerts.json"),

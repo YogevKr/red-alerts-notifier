@@ -144,6 +144,81 @@ describe("createAlertPipeline", () => {
     assert.equal(duplicates[0].semanticKey, "semantic-key");
   });
 
+  it("records source event outcomes for location misses and enqueues", async () => {
+    const recorded = [];
+    const pipeline = createAlertPipeline({
+      suppressionReporter: { record() {} },
+      matchLocations: (alert, locations) => alert.data.filter((location) => locations.includes(location)),
+      locations: ["תל אביב - יפו"],
+      buildSeenSourceAlertKey: (alert) => `${alert.source}:${alert.id}`,
+      hasSeenSourceAlertKey: () => false,
+      rememberSeenSourceAlertKey: () => true,
+      enqueueAlertNotifications: async (_alert, _matched, { chatIds }) => ({
+        enqueuedCount: chatIds.length,
+        duplicateCount: 0,
+      }),
+      targetChatIds: ["telegram:123456789"],
+      parseEventDate: () => new Date("2026-03-23T12:00:00.000Z"),
+      buildAlertLogFields: () => ({}),
+      detectEventType: () => "active_alert",
+      buildSemanticAlertKey: (_alert, matched) => matched.join("|"),
+      isExplicitlySupportedAlert: () => true,
+      isDeliverableEventType: () => true,
+      recordSourceEvent: async (entry) => {
+        recorded.push(entry);
+      },
+      hasDeliveredKey: () => false,
+      rememberDeliveredKey: () => true,
+      hashDeliveryKey: (value) => value,
+      buildDeliveryKey: () => "delivery-key",
+      toIsoString: () => "2026-03-23T12:00:01.000Z",
+    });
+
+    await pipeline.ingestAlert({
+      id: "1",
+      source: "oref_alerts",
+      alertDate: "2026-03-23 12:00:00",
+      data: ["חיפה"],
+    });
+    await pipeline.ingestAlert({
+      id: "2",
+      source: "tzevaadom",
+      alertDate: "2026-03-23 12:00:00",
+      receivedAt: "2026-03-23T12:00:00.200Z",
+      title: "ירי רקטות וטילים",
+      data: ["תל אביב - יפו"],
+    });
+
+    assert.deepEqual(recorded, [
+      {
+        observedAt: "2026-03-23T12:00:01.000Z",
+        receivedAt: null,
+        alertDate: "2026-03-23 12:00:00",
+        source: "oref_alerts",
+        eventType: "active_alert",
+        title: "",
+        rawLocations: ["חיפה"],
+        matchedLocations: [],
+        semanticKey: "",
+        sourceKey: "oref_alerts:1",
+        outcome: "location_miss",
+      },
+      {
+        observedAt: "2026-03-23T12:00:01.000Z",
+        receivedAt: "2026-03-23T12:00:00.200Z",
+        alertDate: "2026-03-23 12:00:00",
+        source: "tzevaadom",
+        eventType: "active_alert",
+        title: "ירי רקטות וטילים",
+        rawLocations: ["תל אביב - יפו"],
+        matchedLocations: ["תל אביב - יפו"],
+        semanticKey: "תל אביב - יפו",
+        sourceKey: "tzevaadom:2",
+        outcome: "enqueued",
+      },
+    ]);
+  });
+
   it("seeds delivery keys only for matched deliverable alerts", async () => {
     const delivered = [];
     const seen = [];

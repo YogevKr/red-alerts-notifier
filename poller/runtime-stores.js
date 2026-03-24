@@ -51,6 +51,44 @@ function formatRawCaptureSummary(entry = {}) {
   return `${entry.source} | ${when}${categorySuffix} | ${title}${areasSuffix}`;
 }
 
+function normalizeEntryLocations(locations = []) {
+  return (Array.isArray(locations) ? locations : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+function formatSourceEventSummary(entry = {}) {
+  const title = String(entry.title || entry.event_type || "unknown").trim() || "unknown";
+  const when =
+    String(entry.alert_date || entry.source_received_at || entry.observed_at || "").trim() || "unknown";
+  const outcome = String(entry.outcome || "").trim();
+  const areas = normalizeEntryLocations(entry.raw_locations || entry.matched_locations);
+  const areasSuffix = areas.length
+    ? ` | ${areas.slice(0, 3).join(", ")}${areas.length > 3 ? ` (+${areas.length - 3})` : ""}`
+    : "";
+  const outcomeSuffix = outcome ? ` | ${outcome}` : "";
+  return `${entry.source} | ${when}${outcomeSuffix} | ${title}${areasSuffix}`;
+}
+
+const RECENT_RECEIVED_KIND_BY_SOURCE = {
+  oref_alerts: "oref_raw",
+  oref_history: "oref_raw",
+  oref_history2: "oref_raw",
+  oref_mqtt: "mqtt_raw",
+  tzevaadom: "ws_raw",
+};
+
+function listRecentReceivedEntriesBySource(listDebugCaptureEntries, debugCaptureStores, source, limit) {
+  const kind = RECENT_RECEIVED_KIND_BY_SOURCE[source];
+  if (!kind) return [];
+
+  return listDebugCaptureEntries(debugCaptureStores, {
+    limit: Math.max(1, limit),
+    kind,
+    source,
+  });
+}
+
 export function createRuntimeStores({
   runtimeStatePath,
   recentSentStorePath,
@@ -70,9 +108,11 @@ export function createRuntimeStores({
   hashDeliveryKey,
   listDebugCaptureEntries,
   debugCaptureStores,
+  activeSourceNames = [],
   locations,
   logger = console,
 } = {}) {
+  let recentSourceEventsLoader = async () => [];
   let boundMonitor = monitor || null;
   const runtimeStateDefaults = {
     deliveryEnabled: parseBooleanEnv(deliveryEnabledEnv),
@@ -173,6 +213,11 @@ export function createRuntimeStores({
     boundMonitor = nextMonitor || null;
   }
 
+  function setRecentSourceEventsLoader(nextLoader) {
+    recentSourceEventsLoader =
+      typeof nextLoader === "function" ? nextLoader : async () => [];
+  }
+
   function loadRecentSentSnapshot() {
     return loadRecentSentEntries(recentSentStorePath, logger);
   }
@@ -208,20 +253,73 @@ export function createRuntimeStores({
     ].join("\n");
   }
 
-  function buildRecentReceivedMessage(limit = 5) {
-    const recentEntries = listDebugCaptureEntries(debugCaptureStores, {
-      limit: Math.max(1, limit),
-      kind: "oref_raw",
-    });
+  async function buildRecentReceivedMessage(limit = 5) {
+    const sources = (
+      Array.isArray(activeSourceNames) && activeSourceNames.length > 0
+        ? activeSourceNames
+        : Object.keys(debugCaptureStores)
+    ).filter((source) => RECENT_RECEIVED_KIND_BY_SOURCE[source]);
 
-    if (recentEntries.length === 0) {
+    if (sources.length === 0) {
       return "recent_received: none";
     }
 
-    return [
-      "recent_received:",
-      ...recentEntries.map((entry) => formatRawCaptureSummary(entry)),
-    ].join("\n");
+    try {
+      const recentSourceEvents = await recentSourceEventsLoader(
+        sources,
+        Math.max(1, limit),
+      );
+      if (Array.isArray(recentSourceEvents) && recentSourceEvents.length > 0) {
+        const groupedRows = new Map();
+        for (const source of sources) groupedRows.set(source, []);
+        for (const row of recentSourceEvents) {
+          const source = String(row?.source || "").trim();
+          if (!groupedRows.has(source)) continue;
+          groupedRows.get(source).push(row);
+        }
+
+        const lines = ["recent_received:"];
+        let hasAnyEntries = false;
+
+        for (const source of sources) {
+          const entries = groupedRows.get(source) || [];
+          lines.push(`${source}:`);
+          if (entries.length === 0) {
+            lines.push("none");
+            continue;
+          }
+          hasAnyEntries = true;
+          lines.push(...entries.map((entry) => formatSourceEventSummary(entry)));
+        }
+
+        if (hasAnyEntries) {
+          return lines.join("\n");
+        }
+      }
+    } catch (err) {
+      logger.warn?.(`Could not load recent source events: ${err.message}`);
+    }
+
+    const lines = ["recent_received:"];
+    let hasAnyEntries = false;
+
+    for (const source of sources) {
+      const entries = listRecentReceivedEntriesBySource(
+        listDebugCaptureEntries,
+        debugCaptureStores,
+        source,
+        limit,
+      );
+      lines.push(`${source}:`);
+      if (entries.length === 0) {
+        lines.push("none");
+        continue;
+      }
+      hasAnyEntries = true;
+      lines.push(...entries.map((entry) => formatRawCaptureSummary(entry)));
+    }
+
+    return hasAnyEntries ? lines.join("\n") : "recent_received: none";
   }
 
   function buildRecentSentMessage(limit = 5) {
@@ -337,6 +435,7 @@ export function createRuntimeStores({
     delivered,
     seenSourceAlerts,
     bindMonitor,
+    setRecentSourceEventsLoader,
     persistRuntimeState,
     setDeliveryEnabled,
     rememberRecentAlertFlow,

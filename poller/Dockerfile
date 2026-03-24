@@ -20,6 +20,7 @@ COPY ops-timeline-store.js .
 COPY health.js .
 COPY health-snapshot.js .
 COPY config.js .
+COPY source-event-ledger.js .
 COPY monitor-state.js .
 COPY notifier-target.js .
 COPY poller-app.js .
