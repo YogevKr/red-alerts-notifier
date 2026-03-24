@@ -28,33 +28,33 @@ export const MESSAGE_TEMPLATES = {
   },
   whatsapp: {
     preAlert: {
-      mediaBaseName: "general",
+      mediaBaseName: "pre-alert",
       upcomingAlertsTemplate:
         "בדקות הקרובות צפויות להתקבל התרעות באזורך עקב ירי טילים ורקטות.\n\nיש לשהות בסמוך למרחב מוגן ולהמשיך לעקוב אחר ההנחיות.",
       defaultTemplate: "התקבלה הנחיה מקדימה - יש לשהות בסמוך למרחב מוגן",
     },
     stayNearbyUpdate: {
-      mediaBaseName: "general",
+      mediaBaseName: "stay_nearby",
       template:
         "ניתן לצאת מהמרחב המוגן, אך יש להישאר בקרבתו ולהמשיך לעקוב אחר ההנחיות.",
     },
     allClear: {
-      mediaBaseName: "general",
+      mediaBaseName: "all-clear",
       template:
         "האירוע הסתיים - ניתן לצאת מהמרחב המוגן.\n\nאין צורך לשהות בסמוך למרחב מוגן.",
     },
     activeAlert: {
-      mediaBaseName: "general",
+      mediaBaseName: "active-alert",
       rocketTemplate:
         "ירי טילים ורקטות באזורך.\n\nיש להכנס למרחב המוגן ולשהות בו עד לקבלת הודעת שחרור.",
     },
     droneAlert: {
-      mediaBaseName: "general",
+      mediaBaseName: "drone",
       template:
         "עקב חדירת כלי טיס עוין הופעלה התרעה באזורך.\n\nיש להיכנס למרחב המוגן ולשהות בו עד קבלת הודעת שחרור.",
     },
     earthquakeAlert: {
-      mediaBaseName: "general",
+      mediaBaseName: "earthquake",
       template:
         "הופעלה התרעה בשל רעידת אדמה באזורך.\n\nצאו מיד לשטח פתוח.\n\nאם לא ניתן - הכנסו לממ\"ד והשאירו את הדלת והחלון פתוחים.",
     },

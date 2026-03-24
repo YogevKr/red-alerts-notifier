@@ -678,36 +678,36 @@ describe("getConfiguredMediaBaseNames", () => {
 });
 
 describe("resolveMessageMediaBaseName", () => {
-  it("uses general media for all event types", () => {
+  it("uses event-specific media for supported event types", () => {
     assert.equal(
       resolveMessageMediaBaseName({ title: "ירי רקטות וטילים", cat: "1" }, EVENT_TYPES.ACTIVE_ALERT),
-      "general",
+      "active-alert",
     );
     assert.equal(
       resolveMessageMediaBaseName({ title: "חדירת כלי טיס עוין", cat: "2" }, EVENT_TYPES.DRONE_ALERT),
-      "general",
+      "drone",
     );
     assert.equal(
       resolveMessageMediaBaseName({ title: "רעידת אדמה", cat: "3" }, EVENT_TYPES.EARTHQUAKE_ALERT),
-      "general",
+      "earthquake",
     );
     assert.equal(
       resolveMessageMediaBaseName(
         { title: "בדקות הקרובות צפויות להתקבל התרעות באזורך", cat: "14" },
         EVENT_TYPES.PRE_ALERT,
       ),
-      "general",
+      "pre-alert",
     );
     assert.equal(
       resolveMessageMediaBaseName({ title: "האירוע הסתיים", cat: "13" }, EVENT_TYPES.ALL_CLEAR),
-      "general",
+      "all-clear",
     );
     assert.equal(
       resolveMessageMediaBaseName(
         { title: "ניתן לצאת מהמרחב המוגן אך יש להישאר בקרבתו", cat: "10" },
         EVENT_TYPES.STAY_NEARBY_UPDATE,
       ),
-      "general",
+      "stay_nearby",
     );
   });
 
