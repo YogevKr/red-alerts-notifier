@@ -40,6 +40,11 @@ function parseCsvLowercaseValues(csv = "") {
   return parseCsvValues(csv).map((value) => value.toLowerCase());
 }
 
+function arraysEqual(left = [], right = []) {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
 function resolveActiveSourceNames({
   activeSourcesCsv = "",
   orefMqttEnabled = false,
@@ -145,6 +150,9 @@ export function createPollerConfig(env = process.env) {
     NOTIFIER_ACTIVE_TRANSPORTS,
     targetChatIds,
   );
+  const configuredOrefMqttTopics = parseCsvValues(OREF_MQTT_TOPICS);
+  const orefMqttTopicsExplicit = configuredOrefMqttTopics.length > 0
+    && !arraysEqual(configuredOrefMqttTopics, DEFAULT_OREF_MQTT_TOPICS);
   const orefMqttEnabled = parseBooleanEnv(OREF_MQTT_ENABLED);
   const orefMqttReconnectDelayMs = parsePositiveIntEnv(OREF_MQTT_RECONNECT_MS, 5000);
   const tzevaadomEnabled = parseBooleanEnv(TZEVAADOM_ENABLED);
@@ -204,7 +212,8 @@ export function createPollerConfig(env = process.env) {
     orefMqtt: {
       enabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT),
       reconnectDelayMs: orefMqttReconnectDelayMs,
-      topics: parseCsvValues(OREF_MQTT_TOPICS),
+      topics: configuredOrefMqttTopics,
+      topicsExplicit: orefMqttTopicsExplicit,
       rawLogEnabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT)
         && parseBooleanEnv(OREF_MQTT_RAW_LOG_ENABLED),
       rawLogMaxEntries: parsePositiveIntEnv(OREF_MQTT_RAW_LOG_MAX_ENTRIES, 500),

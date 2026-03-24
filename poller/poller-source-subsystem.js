@@ -82,6 +82,7 @@ export function createPollerSourceSubsystem({
       orefMqtt,
       tzevaadom,
     },
+    locations,
     paths,
     logger,
     debugCaptureStores,

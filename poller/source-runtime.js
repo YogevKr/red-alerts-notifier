@@ -9,6 +9,7 @@ import {
   fetchOrefCityMap,
   OrefMqttStream,
   OREF_MQTT_DEFAULT_TOPICS,
+  resolveOrefMqttTopicsForLocations,
   registerOrefMqttDevice,
   subscribeOrefMqttTopics,
   validateOrefMqttCredentials,
@@ -306,6 +307,8 @@ export function createOrefMqttSourceRuntime({
   enabled = false,
   reconnectDelayMs = 5000,
   topics = OREF_MQTT_DEFAULT_TOPICS,
+  topicsExplicit = false,
+  locations = [],
   credentialsPath = "",
   rawLogPath = "",
   rawLogEnabled = false,
@@ -322,9 +325,12 @@ export function createOrefMqttSourceRuntime({
   onHealthChange = null,
 } = {}) {
   const source = SOURCE_CHANNELS.OREF_MQTT;
-  const normalizedTopics = Array.isArray(topics) && topics.length > 0
+  const configuredTopics = Array.isArray(topics) && topics.length > 0
     ? [...new Set(topics.map((topic) => String(topic || "").trim()).filter(Boolean))]
     : [...OREF_MQTT_DEFAULT_TOPICS];
+  const configuredLocations = Array.isArray(locations)
+    ? [...new Set(locations.map((location) => String(location || "").trim()).filter(Boolean))]
+    : [];
   const rawLogStore = new DebugCaptureStore({
     enabled: rawLogEnabled,
     filePath: rawLogPath,
@@ -341,7 +347,9 @@ export function createOrefMqttSourceRuntime({
     credentialsBlocked: false,
     topicsSubscribedAt: null,
     topicsError: null,
-    topics: normalizedTopics,
+    topics: configuredTopics,
+    topicsExplicit: Boolean(topicsExplicit),
+    configuredLocations,
     ...createRealtimeCounterState(enabled),
   };
   const stream = enabled
@@ -428,14 +436,36 @@ export function createOrefMqttSourceRuntime({
     const parsed = loadJson(credentialsPath, {}, "oref_mqtt_credentials", logger);
     const token = String(parsed?.token || "").trim();
     const auth = String(parsed?.auth || "").trim();
-    return token && auth ? { token, auth } : null;
+    const androidId = String(parsed?.androidId || "").trim();
+    return token && auth ? {
+      token,
+      auth,
+      ...(androidId ? { androidId } : {}),
+    } : null;
   }
 
   function persistCredentials(credentials = {}) {
-    persistJson(credentialsPath, {
+    const normalized = {
       token: String(credentials.token || "").trim(),
       auth: String(credentials.auth || "").trim(),
-    });
+      androidId: String(credentials.androidId || "").trim(),
+    };
+    persistJson(credentialsPath, Object.fromEntries(
+      Object.entries(normalized).filter(([, value]) => Boolean(value)),
+    ));
+  }
+
+  function resolveTopics(cityMap = new Map()) {
+    if (state.topicsExplicit) {
+      state.topics = [...configuredTopics];
+      return;
+    }
+
+    state.topics = resolveOrefMqttTopicsForLocations(
+      state.configuredLocations,
+      cityMap,
+      configuredTopics.length > 0 ? configuredTopics : OREF_MQTT_DEFAULT_TOPICS,
+    );
   }
 
   async function resolveCredentials({ timeoutMs } = {}) {
@@ -493,11 +523,13 @@ export function createOrefMqttSourceRuntime({
       state.cityCount = cityMap.size;
       state.cityMapLoadedAt = toIsoString();
       state.cityMapError = null;
+      resolveTopics(cityMap);
       logger.info("oref_mqtt_city_map_ready", {
         city_count: cityMap.size,
       });
     } catch (err) {
       state.cityMapError = err.message;
+      resolveTopics();
       logger.warn("oref_mqtt_city_map_failed", {
         error: err,
       });
@@ -518,7 +550,8 @@ export function createOrefMqttSourceRuntime({
 
     try {
       await subscribeTopics({
-        ...credentials,
+        token: credentials.token,
+        auth: credentials.auth,
         topics: state.topics,
         timeoutMs,
       });
@@ -553,6 +586,7 @@ export function createOrefMqttSourceRuntime({
 export function createRealtimeSourceRuntimes({
   activeSources = [],
   sourceSettings = {},
+  locations = [],
   paths = {},
   logger = console,
   debugCaptureStores = {},
@@ -564,6 +598,7 @@ export function createRealtimeSourceRuntimes({
   const factoryMap = {
     [SOURCE_CHANNELS.OREF_MQTT]: () => createOrefMqttSourceRuntime({
       ...(sourceSettings.orefMqtt || {}),
+      locations,
       credentialsPath: paths.orefMqttCredentialsPath,
       rawLogPath: paths.orefMqttRawLogPath,
       logger,

@@ -2,9 +2,13 @@ import { EventEmitter } from "node:events";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildOrefMqttPushyDevicePayload,
   buildOrefCityMap,
   normalizeOrefMqttMessage,
   OrefMqttStream,
+  registerOrefMqttDevice,
+  resolveOrefMqttTopicsForLocations,
+  validateOrefMqttCredentials,
 } from "./oref-mqtt.js";
 import { OBSERVED_RAW_ALERTS } from "./test-fixtures/observed-raw-alerts.js";
 
@@ -57,6 +61,133 @@ describe("normalizeOrefMqttMessage", () => {
         desc: "השוהים במרחב המוגן יכולים לצאת",
       },
     );
+  });
+});
+
+describe("Pushy device payload", () => {
+  it("builds the fuller android payload shape", () => {
+    assert.deepEqual(
+      buildOrefMqttPushyDevicePayload({
+        androidId: "1234567890abcdef",
+        includeAndroidId: true,
+      }),
+      {
+        app: null,
+        appId: "66c20ac875260a035a3af7b2",
+        platform: "android",
+        sdk: 10117,
+        androidId: "1234567890abcdef-Google-Android-SDK-built-for-x86_64",
+      },
+    );
+  });
+});
+
+describe("resolveOrefMqttTopicsForLocations", () => {
+  it("derives area-segment topics from configured locations", () => {
+    assert.deepEqual(
+      resolveOrefMqttTopicsForLocations(
+        ["תל אביב - יפו", "רמת ישי"],
+        new Map([
+          ["1405", "תל אביב - יפו"],
+          ["1234", "רמת ישי"],
+        ]),
+      ),
+      ["5001405", "5001234"],
+    );
+  });
+});
+
+describe("Pushy API requests", () => {
+  it("registers with android metadata and returns the persisted androidId", async () => {
+    const requests = [];
+
+    const credentials = await registerOrefMqttDevice({
+      androidId: "deadbeefcafebabe",
+      fetchImpl: async (url, options) => {
+        requests.push({ url, options });
+        return {
+          ok: true,
+          async text() {
+            return JSON.stringify({ token: "device-token", auth: "device-auth" });
+          },
+        };
+      },
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "https://pushy.ioref.app/register");
+    assert.deepEqual(JSON.parse(requests[0].options.body), {
+      app: null,
+      appId: "66c20ac875260a035a3af7b2",
+      platform: "android",
+      sdk: 10117,
+      androidId: "deadbeefcafebabe-Google-Android-SDK-built-for-x86_64",
+    });
+    assert.deepEqual(credentials, {
+      token: "device-token",
+      auth: "device-auth",
+      androidId: "deadbeefcafebabe-Google-Android-SDK-built-for-x86_64",
+    });
+  });
+
+  it("validates credentials with the fuller android payload when androidId exists", async () => {
+    const requests = [];
+
+    const result = await validateOrefMqttCredentials({
+      token: "device-token",
+      auth: "device-auth",
+      androidId: "deadbeefcafebabe",
+      fetchImpl: async (url, options) => {
+        requests.push({ url, options });
+        return {
+          ok: true,
+          async text() {
+            return JSON.stringify({ success: true });
+          },
+        };
+      },
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "https://pushy.ioref.app/devices/auth");
+    assert.deepEqual(JSON.parse(requests[0].options.body), {
+      app: null,
+      appId: "66c20ac875260a035a3af7b2",
+      platform: "android",
+      sdk: 10117,
+      androidId: "deadbeefcafebabe-Google-Android-SDK-built-for-x86_64",
+      token: "device-token",
+      auth: "device-auth",
+    });
+    assert.deepEqual(result, {
+      valid: true,
+      blocked: false,
+      response: { success: true },
+    });
+  });
+
+  it("keeps legacy auth payloads minimal when androidId is missing", async () => {
+    const requests = [];
+
+    await validateOrefMqttCredentials({
+      token: "device-token",
+      auth: "device-auth",
+      fetchImpl: async (url, options) => {
+        requests.push({ url, options });
+        return {
+          ok: true,
+          async text() {
+            return JSON.stringify({ success: true });
+          },
+        };
+      },
+    });
+
+    assert.equal(requests.length, 1);
+    assert.deepEqual(JSON.parse(requests[0].options.body), {
+      token: "device-token",
+      auth: "device-auth",
+    });
   });
 });
 

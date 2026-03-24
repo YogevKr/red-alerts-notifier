@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import mqtt from "mqtt";
 import { detectEventType, EVENT_TYPES, parseEventDate } from "./lib.js";
 import { SOURCE_CHANNELS } from "./sources.js";
@@ -5,8 +6,10 @@ import { SOURCE_CHANNELS } from "./sources.js";
 export const OREF_CITIES_URL = "https://www.oref.org.il/districts/cities_heb.json";
 export const OREF_MQTT_PUSHY_API_URL = "https://pushy.ioref.app";
 export const OREF_MQTT_APP_ID = "66c20ac875260a035a3af7b2";
+export const OREF_MQTT_APP = null;
 export const OREF_MQTT_PLATFORM = "android";
 export const OREF_MQTT_SDK = 10117;
+export const OREF_MQTT_ANDROID_ID_SUFFIX = "-Google-Android-SDK-built-for-x86_64";
 export const OREF_MQTT_DEFAULT_TOPICS = [
   "com.alert.meserhadash",
   "alerts",
@@ -31,10 +34,16 @@ const EVENT_TYPE_TO_CATEGORY = {
 
 const THREAT_ID_TO_CATEGORY = {
   "0": "1",
-  "2": "2",
+  "1": "12",
+  "2": "10",
   "3": "7",
+  "4": "11",
+  "5": "2",
+  "6": "9",
   "7": "14",
   "8": "13",
+  "9": "8",
+  "11": "3",
 };
 
 function normalizeAreas(input) {
@@ -49,6 +58,10 @@ function normalizeAreas(input) {
   }
 
   return [];
+}
+
+function normalizeLocationName(value = "") {
+  return String(value || "").trim();
 }
 
 function formatTimestamp(dateLike) {
@@ -101,6 +114,11 @@ function normalizeTopicList(topics = []) {
   )];
 }
 
+function arraysEqual(left = [], right = []) {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
 function normalizeCityIds(citiesIds = "") {
   if (Array.isArray(citiesIds)) {
     return citiesIds
@@ -112,6 +130,43 @@ function normalizeCityIds(citiesIds = "") {
     .split(",")
     .map((value) => String(value || "").trim())
     .filter(Boolean);
+}
+
+function normalizeOrefMqttAndroidId(androidId = "") {
+  const normalized = normalizeLocationName(androidId);
+  if (!normalized) return "";
+  return normalized.endsWith(OREF_MQTT_ANDROID_ID_SUFFIX)
+    ? normalized
+    : `${normalized}${OREF_MQTT_ANDROID_ID_SUFFIX}`;
+}
+
+export function buildOrefMqttAndroidId(seed = randomBytes(8).toString("hex")) {
+  const digest = createHash("sha256")
+    .update(normalizeLocationName(seed) || randomBytes(8).toString("hex"))
+    .digest("hex")
+    .slice(0, 16);
+  return normalizeOrefMqttAndroidId(digest);
+}
+
+export function buildOrefMqttPushyDevicePayload({
+  appId = OREF_MQTT_APP_ID,
+  app = OREF_MQTT_APP,
+  platform = OREF_MQTT_PLATFORM,
+  sdk = OREF_MQTT_SDK,
+  androidId = "",
+  includeAndroidId = Boolean(androidId),
+} = {}) {
+  const payload = {
+    app,
+    appId,
+    platform,
+    sdk,
+  };
+  const normalizedAndroidId = normalizeOrefMqttAndroidId(androidId);
+  if (includeAndroidId && normalizedAndroidId) {
+    payload.androidId = normalizedAndroidId;
+  }
+  return payload;
 }
 
 function resolveOrefMqttCategory(message = {}) {
@@ -141,6 +196,39 @@ export function buildOrefCityMap(payload = []) {
         return [[id, label.split("|")[0].trim()]];
       }),
   );
+}
+
+export function resolveOrefMqttTopicsForLocations(
+  locations = [],
+  cityIdToName = new Map(),
+  defaultTopics = OREF_MQTT_DEFAULT_TOPICS,
+) {
+  const configuredLocations = normalizeAreas(locations);
+  if (configuredLocations.length === 0) {
+    return normalizeTopicList(defaultTopics);
+  }
+
+  const locationToTopic = new Map(
+    [...cityIdToName.entries()]
+      .flatMap(([cityId, locationName]) => {
+        const normalizedLocation = normalizeLocationName(locationName);
+        const normalizedCityId = normalizeLocationName(cityId).replace(/^500/, "");
+        if (!normalizedLocation || !normalizedCityId) return [];
+        return [[normalizedLocation, `500${normalizedCityId}`]];
+      }),
+  );
+
+  const derivedTopics = configuredLocations
+    .map((location) => locationToTopic.get(normalizeLocationName(location)) || "")
+    .filter(Boolean);
+
+  return derivedTopics.length > 0
+    ? normalizeTopicList(derivedTopics)
+    : normalizeTopicList(defaultTopics);
+}
+
+export function areDefaultOrefMqttTopics(topics = []) {
+  return arraysEqual(normalizeTopicList(topics), OREF_MQTT_DEFAULT_TOPICS);
 }
 
 export function resolveOrefMqttCityNames(citiesIds = "", cityIdToName = new Map()) {
@@ -189,19 +277,23 @@ export async function registerOrefMqttDevice({
   appId = OREF_MQTT_APP_ID,
   platform = OREF_MQTT_PLATFORM,
   sdk = OREF_MQTT_SDK,
+  androidId = buildOrefMqttAndroidId(),
   timeoutMs = 15_000,
 } = {}) {
+  const normalizedAndroidId = normalizeOrefMqttAndroidId(androidId) || buildOrefMqttAndroidId();
   const response = await fetchJson(`${apiUrl}/register`, {
     fetchImpl,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: {
+    body: buildOrefMqttPushyDevicePayload({
       appId,
       platform,
       sdk,
-    },
+      androidId: normalizedAndroidId,
+      includeAndroidId: true,
+    }),
     timeoutMs,
   });
 
@@ -211,16 +303,21 @@ export async function registerOrefMqttDevice({
     throw new Error("pushy registration response missing token/auth");
   }
 
-  return { token, auth };
+  return { token, auth, androidId: normalizedAndroidId };
 }
 
 export async function validateOrefMqttCredentials({
   token = "",
   auth = "",
+  androidId = "",
   fetchImpl = fetch,
   apiUrl = OREF_MQTT_PUSHY_API_URL,
+  appId = OREF_MQTT_APP_ID,
+  platform = OREF_MQTT_PLATFORM,
+  sdk = OREF_MQTT_SDK,
   timeoutMs = 15_000,
 } = {}) {
+  const includeAndroidDevicePayload = Boolean(normalizeOrefMqttAndroidId(androidId));
   try {
     const response = await fetchJson(`${apiUrl}/devices/auth`, {
       fetchImpl,
@@ -229,6 +326,15 @@ export async function validateOrefMqttCredentials({
         "Content-Type": "application/json",
       },
       body: {
+        ...(includeAndroidDevicePayload
+          ? buildOrefMqttPushyDevicePayload({
+            appId,
+            platform,
+            sdk,
+            androidId,
+            includeAndroidId: true,
+          })
+          : {}),
         token,
         auth,
       },

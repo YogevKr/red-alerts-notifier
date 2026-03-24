@@ -30,6 +30,7 @@ describe("createPollerConfig", () => {
     assert.equal(config.timing.pollTickIntervalMs, 5000);
     assert.equal(config.orefMqtt.enabled, true);
     assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
+    assert.equal(config.orefMqtt.topicsExplicit, true);
     assert.equal(config.orefMqtt.rawLogEnabled, true);
     assert.equal(config.tzevaadom.enabled, false);
     assert.equal(config.tzevaadom.rawLogEnabled, false);
@@ -48,5 +49,6 @@ describe("createPollerConfig", () => {
       "oref_mqtt",
       "tzevaadom",
     ]);
+    assert.equal(config.orefMqtt.topicsExplicit, false);
   });
 });
