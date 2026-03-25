@@ -341,4 +341,44 @@ describe("PostgresNotificationOutbox.getStats", () => {
       },
     });
   });
+
+  it("skips latency sampling when disabled", async () => {
+    const { pool, calls } = createPoolWithClient(({ text }) => {
+      if (text === OUTBOX_STATS_SQL) {
+        return {
+          rows: [{
+            pending: 2,
+            processing: 1,
+            sent: 3,
+            failed: 4,
+            uncertain: 1,
+            dead_lettered: 2,
+            duplicates: 5,
+            oldest_available_at: "2026-03-18T09:59:00.000Z",
+          }],
+        };
+      }
+      if (text === OUTBOX_LATENCY_SAMPLE_SQL) {
+        throw new Error("latency query should not run");
+      }
+      throw new Error(`unexpected query: ${text}`);
+    });
+
+    const outbox = new PostgresNotificationOutbox({ pool });
+    const stats = await outbox.getStats({ includeLatency: false });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].text, OUTBOX_STATS_SQL);
+    assert.deepEqual(stats, {
+      pending: 2,
+      processing: 1,
+      sent: 3,
+      failed: 4,
+      uncertain: 1,
+      deadLettered: 2,
+      duplicates: 5,
+      oldestAvailableAt: "2026-03-18T09:59:00.000Z",
+      latency: null,
+    });
+  });
 });

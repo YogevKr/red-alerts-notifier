@@ -145,6 +145,10 @@ function normalizeAlert({
   cat,
   data,
   desc = "",
+  sourceEventAt = null,
+  sourceMessageId = null,
+  sourceMessageType = null,
+  sourceMeta = {},
 }) {
   return {
     id: String(id),
@@ -154,6 +158,15 @@ function normalizeAlert({
     cat: String(cat),
     data: normalizeAreas(data),
     desc,
+    ...(sourceEventAt ? { sourceEventAt } : {}),
+    ...(sourceMessageId ? { sourceMessageId: String(sourceMessageId) } : {}),
+    ...(sourceMessageType ? { sourceMessageType: String(sourceMessageType) } : {}),
+    ...(
+      sourceMeta && typeof sourceMeta === "object" && !Array.isArray(sourceMeta)
+      && Object.keys(sourceMeta).length > 0
+        ? { sourceMeta }
+        : {}
+    ),
   };
 }
 
@@ -340,6 +353,15 @@ export function normalizeTzevaadomMessage(message = {}, cityIdToName = new Map()
       title,
       cat: category,
       data,
+      sourceMessageId: message.data.notificationId,
+      sourceMessageType: message.type,
+      sourceMeta: {
+        ...(Number.isFinite(threatId)
+          ? { threat: threatId }
+          : (String(message.data.threat || "").trim()
+            ? { threat: String(message.data.threat).trim() }
+            : {})),
+      },
     });
   }
 
@@ -362,6 +384,16 @@ export function normalizeTzevaadomMessage(message = {}, cityIdToName = new Map()
       title: classification.title,
       cat: classification.cat,
       data,
+      sourceMessageId: message.data.notificationId,
+      sourceMessageType: message.type,
+      sourceMeta: {
+        ...(Number.isFinite(Number(message.data.instructionType))
+          ? { instructionType: Number(message.data.instructionType) }
+          : {}),
+        ...(String(message.data.instructionReadingDescName || "").trim()
+          ? { instructionReadingDescName: String(message.data.instructionReadingDescName).trim() }
+          : {}),
+      },
     });
   }
 
@@ -396,6 +428,7 @@ function formatTimestamp(timestampMs) {
     })
     .replace(",", "");
 }
+
 
 export function sortAlertsByDate(alerts) {
   return [...alerts].sort(

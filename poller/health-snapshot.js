@@ -186,7 +186,7 @@ export function createHealthSnapshotBuilders({
     };
   }
 
-  function buildOpsStatusPayload({ outboxStats = null } = {}) {
+  function buildOpsStatusPayload({ outboxStats = null, includeLatestFlow = false } = {}) {
     const notifierState = getNotifierStateSnapshot();
     const sender = buildOpsSenderStatus(notifierState);
     const whatsapp = buildOpsWhatsAppStatus(notifierState);
@@ -207,7 +207,7 @@ export function createHealthSnapshotBuilders({
       lastDeliveredEventType: notifierState.lastDeliveredEventType || monitor.lastDeliveredEventType,
       lastDeliveredSource: notifierState.lastDeliveredSource || monitor.lastDeliveredSource,
       lastDeliveredTransport: notifierState.lastDeliveredTransport || null,
-      latestFlow: getLatestAlertFlowSnapshot(),
+      latestFlow: includeLatestFlow ? getLatestAlertFlowSnapshot() : null,
       targets: targetChatIds,
       poll: buildOpsPollStatus(),
       database: buildOpsDatabaseStatus(),
@@ -218,12 +218,18 @@ export function createHealthSnapshotBuilders({
   }
 
   async function collectOpsStatusSnapshot() {
+    if (databaseEnabled) {
+      try {
+        await checkDatabaseHealth();
+      } catch {}
+    }
+
     let outboxStats = null;
     try {
-      outboxStats = await getOutboxStatsSnapshot();
+      outboxStats = await getOutboxStatsSnapshot(Date.now(), { includeLatency: false });
     } catch {}
 
-    return buildOpsStatusPayload({ outboxStats });
+    return buildOpsStatusPayload({ outboxStats, includeLatestFlow: false });
   }
 
   function buildDatabaseHealthSnapshot() {

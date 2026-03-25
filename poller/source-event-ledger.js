@@ -10,30 +10,40 @@ insert into ${SOURCE_EVENT_LEDGER_TABLE} (
   observed_at,
   source_received_at,
   alert_date,
+  source_event_at,
   source,
   source_key,
+  source_message_id,
+  source_message_type,
   semantic_key,
   event_type,
+  category,
   title,
+  source_meta,
   raw_locations,
   matched_locations,
   outcome,
   created_at
 )
-values (
-  $1,
-  $2,
-  $3,
-  $4,
-  $5,
-  $6,
-  $7,
-  $8,
-  $9::jsonb,
-  $10::jsonb,
-  $11,
-  $1
-)
+	values (
+	  $1,
+	  $2,
+	  $3,
+	  $4,
+	  $5,
+	  $6,
+	  $7,
+	  $8,
+	  $9,
+	  $10,
+	  $11,
+	  $12,
+	  $13::jsonb,
+	  $14::jsonb,
+	  $15::jsonb,
+	  $16,
+	  $1
+	)
 returning id, observed_at, source, source_key, semantic_key, event_type, outcome
 `;
 
@@ -43,11 +53,16 @@ create table if not exists ${SOURCE_EVENT_LEDGER_TABLE} (
   observed_at timestamptz not null,
   source_received_at timestamptz,
   alert_date text,
+  source_event_at timestamptz,
   source text not null,
   source_key text not null,
+  source_message_id text,
+  source_message_type text,
   semantic_key text,
   event_type text not null,
+  category text,
   title text not null default '',
+  source_meta jsonb not null default '{}'::jsonb,
   raw_locations jsonb not null default '[]'::jsonb,
   matched_locations jsonb not null default '[]'::jsonb,
   outcome text not null,
@@ -55,9 +70,14 @@ create table if not exists ${SOURCE_EVENT_LEDGER_TABLE} (
 );
 `;
 
-const ALTER_RAW_LOCATIONS_SQL = `
+const ALTER_SOURCE_EVENT_COLUMNS_SQL = `
 alter table ${SOURCE_EVENT_LEDGER_TABLE}
-add column if not exists raw_locations jsonb not null default '[]'::jsonb;
+  add column if not exists source_event_at timestamptz,
+  add column if not exists source_message_id text,
+  add column if not exists source_message_type text,
+  add column if not exists category text,
+  add column if not exists source_meta jsonb not null default '{}'::jsonb,
+  add column if not exists raw_locations jsonb not null default '[]'::jsonb;
 `;
 
 const CREATE_OBSERVED_AT_INDEX_SQL = `
@@ -82,11 +102,16 @@ with deduped as (
     observed_at,
     source_received_at,
     alert_date,
+    source_event_at,
     source,
     source_key,
+    source_message_id,
+    source_message_type,
     semantic_key,
     event_type,
+    category,
     title,
+    source_meta,
     raw_locations,
     matched_locations,
     outcome
@@ -100,11 +125,16 @@ ranked as (
     observed_at,
     source_received_at,
     alert_date,
+    source_event_at,
     source,
     source_key,
+    source_message_id,
+    source_message_type,
     semantic_key,
     event_type,
+    category,
     title,
+    source_meta,
     raw_locations,
     matched_locations,
     outcome,
@@ -119,11 +149,16 @@ select
   observed_at,
   source_received_at,
   alert_date,
+  source_event_at,
   source,
   source_key,
+  source_message_id,
+  source_message_type,
   semantic_key,
   event_type,
+  category,
   title,
+  source_meta,
   raw_locations,
   matched_locations,
   outcome
@@ -148,10 +183,19 @@ function normalizeLocations(locations = []) {
     .filter(Boolean);
 }
 
+function normalizeJsonObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entryValue]) => [String(key || "").trim(), entryValue])
+      .filter(([key, entryValue]) => key && entryValue !== undefined),
+  );
+}
+
 export async function ensureSourceEventLedgerSchema(db) {
   await db.query(`create schema if not exists ${NOTIFICATION_OUTBOX_SCHEMA}`);
   await db.query(CREATE_SOURCE_EVENT_TABLE_SQL);
-  await db.query(ALTER_RAW_LOCATIONS_SQL);
+  await db.query(ALTER_SOURCE_EVENT_COLUMNS_SQL);
   await db.query(CREATE_OBSERVED_AT_INDEX_SQL);
   await db.query(CREATE_SEMANTIC_KEY_INDEX_SQL);
   await db.query(CREATE_SOURCE_OBSERVED_INDEX_SQL);
@@ -171,11 +215,16 @@ export class PostgresSourceEventLedger {
       normalizeTimestamp(entry.observedAt) || new Date().toISOString(),
       normalizeTimestamp(entry.receivedAt),
       normalizeText(entry.alertDate, null),
+      normalizeTimestamp(entry.sourceEventAt),
       normalizeText(entry.source, "unknown"),
       normalizeText(entry.sourceKey, "unknown"),
+      normalizeText(entry.sourceMessageId, null),
+      normalizeText(entry.sourceMessageType, null),
       normalizeText(entry.semanticKey, null),
       normalizeText(entry.eventType, "unknown"),
+      normalizeText(entry.category, null),
       normalizeText(entry.title),
+      JSON.stringify(normalizeJsonObject(entry.sourceMeta)),
       JSON.stringify(normalizeLocations(entry.rawLocations)),
       JSON.stringify(normalizeLocations(entry.matchedLocations)),
       normalizeText(entry.outcome, "unknown"),
@@ -199,6 +248,7 @@ export class PostgresSourceEventLedger {
 
     return rows.map((row) => ({
       ...row,
+      source_meta: normalizeJsonObject(row.source_meta),
       raw_locations: normalizeLocations(row.raw_locations),
       matched_locations: normalizeLocations(row.matched_locations),
     }));

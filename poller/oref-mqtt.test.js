@@ -61,10 +61,17 @@ describe("normalizeOrefMqttMessage", () => {
         id: "oref_mqtt:19442819",
         source: "oref_mqtt",
         alertDate: "2026-03-24 12:48:42",
+        sourceEventAt: "2026-03-24T10:48:42.000Z",
+        sourceMessageId: "19442819",
+        sourceMessageType: "mqtt_message",
         title: "בדקות הקרובות צפויות להתקבל התרעות באזורך",
         cat: "14",
         data: ["תל אביב - יפו"],
         desc: "היכנסו למרחב המוגן",
+        sourceMeta: {
+          msgId: "19442818",
+          threatId: "7",
+        },
       },
     );
   });
@@ -76,10 +83,17 @@ describe("normalizeOrefMqttMessage", () => {
         id: "oref_mqtt:19443111",
         source: "oref_mqtt",
         alertDate: "2026-03-24 12:50:10",
+        sourceEventAt: "2026-03-24T10:50:10.000Z",
+        sourceMessageId: "19443111",
+        sourceMessageType: "mqtt_message",
         title: "האירוע הסתיים",
         cat: "13",
         data: ["תל אביב - יפו"],
         desc: "השוהים במרחב המוגן יכולים לצאת",
+        sourceMeta: {
+          msgId: "19443110",
+          threatId: "8",
+        },
       },
     );
   });

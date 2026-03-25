@@ -276,10 +276,6 @@ export function buildTelegramStatusMessage({
     lines.push(`last_delivered_type: ${lastDeliveredEventType || "unknown"}`);
     lines.push(`last_delivered_source: ${lastDeliveredSource || "unknown"}`);
   }
-  if (latestFlow?.summary) {
-    lines.push(`latest_flow: ${latestFlow.summary}`);
-  }
-
   if (outbox) {
     lines.push(
       `outbox: pending=${Number(outbox.pending || 0)}`

@@ -536,16 +536,17 @@ async function handleTelegramUpdate(update = {}) {
   }
 }
 
-function scheduleTelegramPoll() {
+function scheduleTelegramPoll(delayMs = 0) {
   setTimeout(() => {
     void pollTelegram();
-  }, telegramPollRetryMs);
+  }, delayMs);
 }
 
 async function pollTelegram() {
   if (!telegramEnabled) return;
 
   monitor.lastPollAt = toIsoString();
+  let shouldRetryWithDelay = false;
   try {
     const updates = await fetchTelegram("getUpdates", {
       offset: runtimeState.telegramUpdateOffset,
@@ -572,10 +573,11 @@ async function pollTelegram() {
       monitor.lastError = null;
     }
   } catch (err) {
+    shouldRetryWithDelay = true;
     monitor.lastError = err.message;
     console.warn(`Telegram poll failed: ${err.message}`);
   } finally {
-    scheduleTelegramPoll();
+    scheduleTelegramPoll(shouldRetryWithDelay ? telegramPollRetryMs : 0);
   }
 }
 

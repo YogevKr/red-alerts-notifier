@@ -239,25 +239,7 @@ describe("createHealthHelpers", () => {
       lastDeliveredEventType: "all_clear",
       lastDeliveredSource: "tzevaadom",
       lastDeliveredTransport: null,
-      latestFlow: {
-        semanticKey: "flow-1",
-        eventType: "all_clear",
-        title: "האירוע הסתיים",
-        matchedLocations: ["תל אביב - יפו"],
-        summary: "tzevaadom:enqueued (+0ms) -> telegram:sent (+180ms)",
-        entries: [
-          {
-            at: "2026-03-23T11:48:03.890Z",
-            source: "tzevaadom",
-            outcome: "enqueued",
-          },
-          {
-            at: "2026-03-23T11:48:04.070Z",
-            source: "telegram",
-            outcome: "sent",
-          },
-        ],
-      },
+      latestFlow: null,
       targets: ["telegram:123456789"],
       poll: {
         lastPollAt: null,
@@ -298,6 +280,88 @@ describe("createHealthHelpers", () => {
           topicsError: null,
         },
       },
+    });
+  });
+
+  it("refreshes database health when building ops status", async () => {
+    const monitor = {
+      deliveryEnabled: true,
+      deliveryUpdatedAt: null,
+      deliveryUpdatedBy: null,
+      lastPollAt: null,
+      lastPollSuccessAt: null,
+      lastPollErrorAt: null,
+      lastPollError: null,
+      consecutivePollErrors: 0,
+      dbLastCheckedAt: null,
+      dbLastError: "stale",
+      dbLatencyMs: null,
+      dbDatabaseName: null,
+      dbServerTime: null,
+      dbDisconnectedSince: null,
+      outboxLastCheckedAt: null,
+      outboxLastError: null,
+      whatsappActiveInstance: null,
+      whatsappPrimaryInstance: null,
+      whatsappPrimaryState: null,
+      whatsappFallbackInstance: null,
+      whatsappFallbackState: null,
+      whatsappConnectionState: null,
+      whatsappLastCheckedAt: null,
+      whatsappLastError: null,
+      whatsappDisconnectedSince: null,
+      telegramEnabled: false,
+      telegramLastPollAt: null,
+      telegramLastUpdateAt: null,
+      telegramLastCommandAt: null,
+      telegramLastCommand: null,
+      telegramLastError: null,
+      sourceFailures: {},
+    };
+
+    let checks = 0;
+    const helpers = createHealthHelpers({
+      loadNotifierState: () => ({}),
+      databaseEnabled: true,
+      runtimeState: { deliveryEnabled: true },
+      activeSourceNames: ["oref_alerts"],
+      monitor,
+      targetChatIds: [],
+      locations: [],
+      delivered: new Set(),
+      notifierDedupeGate: { size: 0, inFlightSize: 0 },
+      seenSourceAlerts: new Set(),
+      inFlight: new Set(),
+      evolutionInstance: "default",
+      evolutionFallbackInstance: "",
+      debugCaptureStores: {},
+      summarizeDebugCaptureStores: () => ({ enabled: false, entries: 0, byKind: {}, bySource: {} }),
+      pagerDuty: { status: () => ({ enabled: false, openIncidents: 0, incidents: [] }) },
+      getSourceFailureSnapshot: () => ({}),
+      getRealtimeSourcesSnapshot: () => ({}),
+      getLatestAlertFlowSnapshot: () => null,
+      checkDatabaseHealth: async () => {
+        checks += 1;
+        monitor.dbLastCheckedAt = "2026-03-25T11:36:30.993Z";
+        monitor.dbLastError = null;
+        monitor.dbLatencyMs = 774;
+      },
+      getOutboxStatsSnapshot: async (_now, options = {}) => {
+        assert.equal(options.includeLatency, false);
+        return null;
+      },
+      pruneDeliveredKeys() {},
+      toIsoString: (ts = Date.now()) => new Date(ts).toISOString(),
+    });
+
+    const response = await helpers.buildOpsStatusResponse();
+
+    assert.equal(checks, 1);
+    assert.deepEqual(response.status.database, {
+      enabled: true,
+      lastCheckedAt: "2026-03-25T11:36:30.993Z",
+      lastError: null,
+      latencyMs: 774,
     });
   });
 });

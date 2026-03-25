@@ -236,10 +236,21 @@ export function normalizeOrefMqttMessage(message = {}, cityIdToName = new Map())
     id: `${SOURCE_CHANNELS.OREF_MQTT}:${id}`,
     source: SOURCE_CHANNELS.OREF_MQTT,
     alertDate: formatTimestamp(message?.time || Date.now()),
+    sourceEventAt: message?.time ? new Date(message.time).toISOString() : null,
+    sourceMessageId: id,
+    sourceMessageType: "mqtt_message",
     title,
     cat,
     data: normalizeAreas(data),
     desc: String(message?.desc || "").trim(),
+    sourceMeta: {
+      ...(String(message?.msgId || "").trim()
+        ? { msgId: String(message.msgId).trim() }
+        : {}),
+      ...(String(message?.threatId || "").trim()
+        ? { threatId: String(message.threatId).trim() }
+        : {}),
+    },
   };
 }
 

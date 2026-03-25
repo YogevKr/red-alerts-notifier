@@ -184,7 +184,6 @@ describe("buildTelegramStatusMessage", () => {
         "last_delivered_at: 2026-03-12T15:00:00.000Z",
         "last_delivered_type: all_clear",
         "last_delivered_source: oref_history",
-        "latest_flow: tzevaadom:enqueued (+0ms) -> telegram:sent (+180ms) -> oref_alerts:duplicate (+4.0s)",
         "outbox: pending=1 processing=2 failed=0 uncertain=0 dead=1",
         "latency_ms: e2e p50=280 p95=950 queue p50=18 p95=60 send p50=170 p95=520 n=4",
         "latency_src_enqueue_ms: p50=22 p95=240",

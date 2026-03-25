@@ -31,6 +31,17 @@ export function createAlertPipeline({
   hashDeliveryKey,
   buildDeliveryKey,
 } = {}) {
+  function normalizeCategory(value) {
+    const normalized = String(value || "").trim();
+    return normalized || null;
+  }
+
+  function resolveSourceEventAt(alert = {}) {
+    if (alert?.sourceEventAt) return alert.sourceEventAt;
+    if (!alert?.alertDate) return null;
+    return parseEventDate(alert.alertDate).toISOString();
+  }
+
   function inspectAlert(alert) {
     const matched = matchLocations(alert, locations);
     const eventType = detectEventType(alert);
@@ -67,9 +78,14 @@ export function createAlertPipeline({
       observedAt,
       receivedAt: context.alert?.receivedAt || null,
       alertDate: context.alert?.alertDate || null,
+      sourceEventAt: resolveSourceEventAt(context.alert),
       source: context.alert?.source || "unknown",
+      sourceMessageId: context.alert?.sourceMessageId || null,
+      sourceMessageType: context.alert?.sourceMessageType || null,
       eventType: context.eventType,
+      category: normalizeCategory(context.alert?.cat),
       title: context.alert?.title || "",
+      sourceMeta: context.alert?.sourceMeta || {},
       rawLocations: Array.isArray(context.alert?.data) ? context.alert.data : [],
       matchedLocations: context.matched,
       semanticKey: context.semanticKey,

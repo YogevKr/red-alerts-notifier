@@ -281,10 +281,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:alert:abc",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2025-06-30 15:00:00",
+        sourceMessageId: "abc",
+        sourceMessageType: "ALERT",
         title: "חדירת כלי טיס עוין",
         cat: "2",
         data: ["תל אביב - יפו", "חיפה"],
         desc: "",
+        sourceMeta: { threat: 5 },
       },
     );
   });
@@ -299,10 +302,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:system:pre-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2025-06-30 15:00:00",
+        sourceMessageId: "pre-1",
+        sourceMessageType: "SYSTEM_MESSAGE",
         title: "בדקות הקרובות צפויות להתקבל התרעות באזורך",
         cat: "14",
         data: ["תל אביב - יפו"],
         desc: "",
+        sourceMeta: { instructionType: 0, instructionReadingDescName: "11" },
       },
     );
   });
@@ -328,6 +334,8 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:system:pre-text-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2025-06-30 15:00:00",
+        sourceMessageId: "pre-text-1",
+        sourceMessageType: "SYSTEM_MESSAGE",
         title: "בדקות הקרובות צפויות להתקבל התרעות באזורך",
         cat: "14",
         data: ["תל אביב - יפו"],
@@ -346,10 +354,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:system:end-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2026-02-28 15:51:47",
+        sourceMessageId: "end-1",
+        sourceMessageType: "SYSTEM_MESSAGE",
         title: "האירוע הסתיים",
         cat: "13",
         data: ["תל אביב - יפו"],
         desc: "",
+        sourceMeta: { instructionType: 1, instructionReadingDescName: "9" },
       },
     );
   });
@@ -364,10 +375,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:system:nearby-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2026-02-28 15:51:50",
+        sourceMessageId: "nearby-1",
+        sourceMessageType: "SYSTEM_MESSAGE",
         title: "ניתן לצאת מהמרחב המוגן אך יש להישאר בקרבתו",
         cat: "13",
         data: ["תל אביב - יפו"],
         desc: "",
+        sourceMeta: { instructionType: 1, instructionReadingDescName: "15" },
       },
     );
   });
@@ -382,10 +396,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:system:end-nearby-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2026-02-28 15:51:51",
+        sourceMessageId: "end-nearby-1",
+        sourceMessageType: "SYSTEM_MESSAGE",
         title: "האירוע הסתיים",
         cat: "13",
         data: ["תל אביב - יפו"],
         desc: "",
+        sourceMeta: { instructionType: 1, instructionReadingDescName: "6" },
       },
     );
   });
@@ -400,10 +417,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:system:stay-nearby-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2026-03-11 20:04:20",
+        sourceMessageId: "stay-nearby-1",
+        sourceMessageType: "SYSTEM_MESSAGE",
         title: "ניתן לצאת מהמרחב המוגן אך יש להישאר בקרבתו",
         cat: "13",
         data: ["תל אביב - יפו"],
         desc: "",
+        sourceMeta: { instructionType: 2, instructionReadingDescName: "5" },
       },
     );
   });
@@ -418,10 +438,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:system:generic-end-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2026-03-05 20:17:43",
+        sourceMessageId: "generic-end-1",
+        sourceMessageType: "SYSTEM_MESSAGE",
         title: "האירוע הסתיים",
         cat: "13",
         data: ["תל אביב - יפו"],
         desc: "",
+        sourceMeta: { instructionType: 2 },
       },
     );
   });
@@ -433,10 +456,13 @@ describe("normalizeTzevaadomMessage", () => {
         id: "tzevaadom:alert:rocket-1",
         source: SOURCE_CHANNELS.TZEVAADOM,
         alertDate: "2025-03-11 00:56:35",
+        sourceMessageId: "rocket-1",
+        sourceMessageType: "ALERT",
         title: "ירי רקטות וטילים",
         cat: "1",
         data: ["תל אביב - יפו"],
         desc: "",
+        sourceMeta: { threat: 0 },
       },
     );
   });

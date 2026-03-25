@@ -61,12 +61,12 @@ export function createPagerDutyRuntime({
     }
   }
 
-  async function getOutboxStatsSnapshot(now = Date.now()) {
+  async function getOutboxStatsSnapshot(now = Date.now(), { includeLatency = true } = {}) {
     if (!notificationOutbox) return null;
 
     const checkedAt = toIsoString(now);
     try {
-      const stats = await notificationOutbox.getStats();
+      const stats = await notificationOutbox.getStats({ includeLatency });
       monitor.outboxLastCheckedAt = checkedAt;
       monitor.outboxLastError = null;
       return stats;

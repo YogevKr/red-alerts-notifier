@@ -463,10 +463,12 @@ export class PostgresNotificationOutbox {
     return rows[0] || null;
   }
 
-  async getStats() {
+  async getStats({ includeLatency = true } = {}) {
     const [row] = await queryRows(this.pool, OUTBOX_STATS_SQL);
-    const latencyRows = await queryRows(this.pool, OUTBOX_LATENCY_SAMPLE_SQL, [OUTBOX_LATENCY_SAMPLE_LIMIT]);
     const oldestAvailableAt = normalizeDate(row?.oldest_available_at);
+    const latencyRows = includeLatency
+      ? await queryRows(this.pool, OUTBOX_LATENCY_SAMPLE_SQL, [OUTBOX_LATENCY_SAMPLE_LIMIT])
+      : [];
 
     return {
       pending: row?.pending || 0,
@@ -477,7 +479,7 @@ export class PostgresNotificationOutbox {
       deadLettered: row?.dead_lettered || 0,
       duplicates: row?.duplicates || 0,
       oldestAvailableAt: oldestAvailableAt ? oldestAvailableAt.toISOString() : null,
-      latency: summarizeOutboxLatencyRows(latencyRows),
+      latency: includeLatency ? summarizeOutboxLatencyRows(latencyRows) : null,
     };
   }
 }

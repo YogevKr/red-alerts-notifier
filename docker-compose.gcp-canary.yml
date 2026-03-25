@@ -1,5 +1,5 @@
 services:
-  poller:
+  canary-poller:
     build: ./poller
     restart: unless-stopped
     ports:
@@ -58,7 +58,7 @@ services:
     networks:
       - shared
 
-  notifier-worker:
+  canary-notifier-worker:
     build: ./poller
     command: ["node", "notifier-worker.js"]
     restart: unless-stopped
@@ -87,7 +87,7 @@ services:
     networks:
       - shared
 
-  telegram-bot:
+  canary-telegram-bot:
     build: ./poller
     command: ["node", "telegram-bot.js"]
     restart: unless-stopped
@@ -96,11 +96,11 @@ services:
       - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS}
       - TELEGRAM_POLL_TIMEOUT_SECONDS=${TELEGRAM_POLL_TIMEOUT_SECONDS:-50}
       - TELEGRAM_POLL_RETRY_MS=${TELEGRAM_POLL_RETRY_MS:-5000}
-      - POLLER_INTERNAL_URL=${POLLER_INTERNAL_URL:-http://poller:3000}
+      - POLLER_INTERNAL_URL=${POLLER_INTERNAL_URL:-http://canary-poller:3000}
     volumes:
       - telegram_bot_canary_state:/app/data
     depends_on:
-      - poller
+      - canary-poller
     networks:
       - shared
 
