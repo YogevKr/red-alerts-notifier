@@ -443,6 +443,8 @@ describe("createOrefMqttSourceRuntime", () => {
       androidId: "persisted-android-id",
     });
     assert.equal(snapshot.oref_mqtt.cityCount, 1);
+    assert.equal(snapshot.oref_mqtt.topicCount, 4);
+    assert.equal("topics" in snapshot.oref_mqtt, false);
     assert.equal(snapshot.oref_mqtt.credentialsValidationStatus, "forbidden");
     assert.equal(snapshot.oref_mqtt.credentialsUsable, true);
     assert.equal(snapshot.oref_mqtt.credentialsError, null);

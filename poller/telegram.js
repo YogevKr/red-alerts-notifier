@@ -1,3 +1,5 @@
+import { formatStatusTimestamp } from "./lib.js";
+
 export const TELEGRAM_COMMANDS = [
   { command: "status", description: "Show delivery and sender status" },
   { command: "recent_received", description: "Show latest raw OREF rows" },
@@ -183,6 +185,7 @@ export function buildTelegramStatusMessage({
   realtimeSources = null,
   format = "plain",
 } = {}) {
+  const formatTimestamp = (value) => (value ? formatStatusTimestamp(value) : "never");
   const normalizedTransports = [...new Set(
     (Array.isArray(transports) ? transports : [])
       .map((value) => String(value || "").trim().toLowerCase())
@@ -238,7 +241,7 @@ export function buildTelegramStatusMessage({
   if (telegramEnabled) {
     lines.push(
       `telegram: ${telegram?.lastError ? "error" : "ok"}`
-      + ` checked_at=${telegram?.lastCheckedAt || "never"}`,
+      + ` checked_at=${formatTimestamp(telegram?.lastCheckedAt)}`,
     );
     if (telegram?.lastDeliveredChatId) {
       lines.push(`telegram_last_chat: telegram:${telegram.lastDeliveredChatId}`);
@@ -253,7 +256,7 @@ export function buildTelegramStatusMessage({
     lines.push(
       `poll: ${pollHealthy ? "ok" : "failing"}`
       + ` errs=${Number(poll.consecutivePollErrors || 0)}`
-      + ` last_ok=${poll.lastPollSuccessAt || "never"}`,
+      + ` last_ok=${formatTimestamp(poll.lastPollSuccessAt)}`,
     );
     if (!pollHealthy && poll.lastPollError) {
       lines.push(`poll_error: ${poll.lastPollError}`);
@@ -264,7 +267,7 @@ export function buildTelegramStatusMessage({
     lines.push(
       `db: ${database.lastError ? "error" : "ok"}`
       + ` latency_ms=${database.latencyMs ?? "n/a"}`
-      + ` checked_at=${database.lastCheckedAt || "never"}`,
+      + ` checked_at=${formatTimestamp(database.lastCheckedAt)}`,
     );
     if (database.lastError) {
       lines.push(`db_error: ${database.lastError}`);
@@ -272,7 +275,7 @@ export function buildTelegramStatusMessage({
   }
 
   if (lastDeliveredAt) {
-    lines.push(`last_delivered_at: ${lastDeliveredAt}`);
+    lines.push(`last_delivered_at: ${formatStatusTimestamp(lastDeliveredAt)}`);
     lines.push(`last_delivered_type: ${lastDeliveredEventType || "unknown"}`);
     lines.push(`last_delivered_source: ${lastDeliveredSource || "unknown"}`);
   }
@@ -310,7 +313,7 @@ export function buildTelegramStatusMessage({
     lines.push(
       `${source}: ${isFailing ? "fail" : "ok"}`
       + ` fails=${Number(status.consecutiveFailures || 0)}`
-      + ` last_ok=${status.lastSuccessAt || "never"}`,
+      + ` last_ok=${formatTimestamp(status.lastSuccessAt)}`,
     );
     if (isFailing && status.lastError) {
       lines.push(`${source}_error: ${status.lastError}`);
@@ -326,10 +329,10 @@ export function buildTelegramStatusMessage({
       + ` errs=${Number(status.parseErrorCount || 0)}`,
     );
     if (status.lastMessageAt) {
-      lines.push(`${source}_last_message_at: ${status.lastMessageAt}`);
+      lines.push(`${source}_last_message_at: ${formatStatusTimestamp(status.lastMessageAt)}`);
     }
     if (status.lastAlertAt) {
-      lines.push(`${source}_last_alert_at: ${status.lastAlertAt}`);
+      lines.push(`${source}_last_alert_at: ${formatStatusTimestamp(status.lastAlertAt)}`);
     }
     if (status.lastTopic) {
       lines.push(`${source}_last_topic: ${status.lastTopic}`);

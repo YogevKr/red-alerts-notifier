@@ -346,7 +346,7 @@ export function createOrefMqttSourceRuntime({
     credentialsUsable: false,
     topicsSubscribedAt: null,
     topicsError: null,
-    topics: configuredTopics,
+    topicCount: configuredTopics.length,
     ...createRealtimeCounterState(enabled),
   };
   const stream = enabled
@@ -398,7 +398,7 @@ export function createOrefMqttSourceRuntime({
       [source]: {
         enabled: true,
         reconnectDelayMs,
-        topics: [...state.topics],
+        topicCount: state.topicCount,
         cityMapLoadedAt: state.cityMapLoadedAt,
         cityMapError: state.cityMapError,
         cityCount: state.cityCount,
@@ -504,19 +504,22 @@ export function createOrefMqttSourceRuntime({
   async function start({ timeoutMs } = {}) {
     if (!enabled || !stream) return;
 
+    let topicsToSubscribe = configuredTopics;
+
     try {
       const cityCatalog = await fetchCityCatalog({ timeoutMs });
       const cityMap = buildOrefCityMap(cityCatalog);
       stream.setCityMap(cityMap);
       state.cityCount = cityMap.size;
-      state.topics = buildOrefMqttSubscriptionTopics(cityCatalog, {
+      topicsToSubscribe = buildOrefMqttSubscriptionTopics(cityCatalog, {
         baseTopics: configuredTopics,
       });
+      state.topicCount = topicsToSubscribe.length;
       state.cityMapLoadedAt = toIsoString();
       state.cityMapError = null;
       logger.info("oref_mqtt_city_map_ready", {
         city_count: cityMap.size,
-        topics_count: state.topics.length,
+        topics_count: topicsToSubscribe.length,
       });
     } catch (err) {
       try {
@@ -527,7 +530,7 @@ export function createOrefMqttSourceRuntime({
         state.cityMapError = null;
         logger.info("oref_mqtt_city_map_ready", {
           city_count: cityMap.size,
-          topics_count: state.topics.length,
+          topics_count: state.topicCount,
         });
       } catch {
         state.cityMapError = err.message;
@@ -555,18 +558,18 @@ export function createOrefMqttSourceRuntime({
       await subscribeTopics({
         token: credentials.token,
         auth: credentials.auth,
-        topics: state.topics,
+        topics: topicsToSubscribe,
         timeoutMs,
       });
       state.topicsSubscribedAt = toIsoString();
       state.topicsError = null;
       logger.info("oref_mqtt_topics_subscribed", {
-        topics_count: state.topics.length,
+        topics_count: topicsToSubscribe.length,
       });
     } catch (err) {
       state.topicsError = err.message;
       logger.warn("oref_mqtt_topics_subscribe_failed", {
-        topics_count: state.topics.length,
+        topics_count: topicsToSubscribe.length,
         error: err,
       });
     }
@@ -574,7 +577,7 @@ export function createOrefMqttSourceRuntime({
     stream.start();
     logger.info("oref_mqtt_stream_started", {
       reconnect_delay_ms: reconnectDelayMs,
-      topics_count: state.topics.length,
+      topics_count: topicsToSubscribe.length,
     });
   }
 

@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { formatStatusTimestamp } from "./lib.js";
 
 function loadJsonList(filePath, label, logger = console) {
   if (!filePath) return [];
@@ -159,7 +160,7 @@ function formatFlowStep(step = {}, firstStepAtMs = null) {
   const deltaSuffix = Number.isFinite(firstStepAtMs) && Number.isFinite(step.atMs)
     ? ` (+${formatTimelineDelta(step.atMs - firstStepAtMs)})`
     : "";
-  return `${step.at || "unknown"}${deltaSuffix} | ${step.source} | ${step.outcome}`;
+  return `${formatStatusTimestamp(step.at)}${deltaSuffix} | ${step.source} | ${step.outcome}`;
 }
 
 export function loadRecentSentEntries(filePath, logger = console) {
@@ -237,7 +238,7 @@ export function buildRecentSentMessage(recentSentEntries = [], limit = 5) {
     ...recentSentEntries.slice(0, Math.max(1, limit)).map((entry) => {
       const titleSuffix = entry.title ? ` | ${entry.title}` : "";
       const fallbackSuffix = entry.usedFallback ? " | fallback" : "";
-      return `${entry.deliveredAt} | ${entry.eventType} | ${entry.source} | ${entry.chatId}${fallbackSuffix}${titleSuffix}`;
+      return `${formatStatusTimestamp(entry.deliveredAt)} | ${entry.eventType} | ${entry.source} | ${entry.chatId}${fallbackSuffix}${titleSuffix}`;
     }),
   ].join("\n");
 }

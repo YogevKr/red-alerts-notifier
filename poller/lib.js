@@ -40,6 +40,16 @@ const JERUSALEM_FORMATTER = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   hour12: false,
 });
+const JERUSALEM_STATUS_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: EVENT_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
 const JERUSALEM_OFFSET_FORMATTER = new Intl.DateTimeFormat("en-US", {
   timeZone: EVENT_TIMEZONE,
   timeZoneName: "shortOffset",
@@ -354,6 +364,18 @@ export function formatEventTimestamp(dateLike) {
   const minutes = parts.minute;
 
   return `${weekday} | ${day}.${month}.${year} | שעה ${hours}:${minutes}`;
+}
+
+export function formatStatusTimestamp(dateLike) {
+  const raw = String(dateLike || "").trim();
+  if (!raw) return "unknown";
+
+  const date = parseEventDate(raw);
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return raw;
+  }
+
+  return JERUSALEM_STATUS_FORMATTER.format(date);
 }
 
 export function alertKey(alert) {

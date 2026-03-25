@@ -8,6 +8,7 @@ import {
   loadRecentAlertFlowEntries,
   loadRecentSentEntries,
 } from "./ops-timeline-store.js";
+import { formatStatusTimestamp } from "./lib.js";
 
 function loadJson(filePath, fallback, label, logger = console) {
   try {
@@ -34,7 +35,7 @@ function formatRawCaptureSummary(entry = {}) {
   const title =
     String(payload.title || payload.category_desc || payload.desc || "unknown").trim() || "unknown";
   const when =
-    String(payload.alertDate || payload.date || payload.time || entry.lastSeenAt || "").trim() || "unknown";
+    formatStatusTimestamp(payload.alertDate || payload.date || payload.time || entry.lastSeenAt);
   const category =
     payload.cat !== undefined
       ? String(payload.cat)
@@ -60,7 +61,7 @@ function normalizeEntryLocations(locations = []) {
 function formatSourceEventSummary(entry = {}) {
   const title = String(entry.title || entry.event_type || "unknown").trim() || "unknown";
   const when =
-    String(entry.alert_date || entry.source_received_at || entry.observed_at || "").trim() || "unknown";
+    formatStatusTimestamp(entry.alert_date || entry.source_received_at || entry.observed_at);
   const outcome = String(entry.outcome || "").trim();
   const areas = normalizeEntryLocations(entry.raw_locations || entry.matched_locations);
   const areasSuffix = areas.length

@@ -61,7 +61,7 @@ describe("createRuntimeStores", () => {
       stores.buildRecentSentMessage(1),
       [
         "recent_sent:",
-        "2026-03-24T00:30:09.000Z | active_alert | ops_api | telegram:123456789 | ירי רקטות וטילים",
+        "2026-03-24 02:30:09 | active_alert | ops_api | telegram:123456789 | ירי רקטות וטילים",
       ].join("\n"),
     );
   });
@@ -118,9 +118,9 @@ describe("createRuntimeStores", () => {
       [
         "recent_flow:",
         "האירוע הסתיים | תל אביב - יפו",
-        "2026-03-24T00:33:32.471Z (+0ms) | tzevaadom | enqueued",
-        "2026-03-24T00:33:32.637Z (+166ms) | telegram | sent",
-        "2026-03-24T00:33:36.575Z (+4.1s) | oref_alerts | duplicate",
+        "2026-03-24 02:33:32 (+0ms) | tzevaadom | enqueued",
+        "2026-03-24 02:33:32 (+166ms) | telegram | sent",
+        "2026-03-24 02:33:36 (+4.1s) | oref_alerts | duplicate",
       ].join("\n"),
     );
   });
@@ -177,7 +177,7 @@ describe("createRuntimeStores", () => {
         "oref_alerts:",
         "oref_alerts | 2026-03-24 23:00:01 | location_miss | Website alert | תל אביב - יפו",
         "oref_mqtt:",
-        "oref_mqtt | 2026-03-24T21:00:02.000Z | enqueued | MQTT message | תל אביב - יפו",
+        "oref_mqtt | 2026-03-24 23:00:02 | enqueued | MQTT message | תל אביב - יפו",
       ].join("\n"),
     );
   });
@@ -255,9 +255,9 @@ describe("createRuntimeStores", () => {
         "oref_history:",
         "none",
         "oref_mqtt:",
-        "oref_mqtt | 2026-03-24T21:00:02.000Z | MQTT message",
+        "oref_mqtt | 2026-03-24 23:00:02 | MQTT message",
         "tzevaadom:",
-        "tzevaadom | 2026-03-24T21:00:03.000Z | WS message",
+        "tzevaadom | 2026-03-24 23:00:03 | WS message",
       ].join("\n"),
     );
   });

@@ -381,7 +381,7 @@ export function createPollerApp(config = {}) {
       source_event_ledger_enabled: Boolean(sourceEventLedger),
       active_sources: sources.activeNames,
       oref_mqtt_enabled: orefMqtt.enabled,
-      oref_mqtt_topics: orefMqtt.topics,
+      oref_mqtt_topic_count: Array.isArray(orefMqtt.topics) ? orefMqtt.topics.length : 0,
       oref_mqtt_raw_log_enabled: orefMqtt.rawLogEnabled,
       tzevaadom_enabled: tzevaadom.enabled,
       tzevaadom_raw_log_enabled: tzevaadom.rawLogEnabled,
