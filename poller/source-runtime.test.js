@@ -408,7 +408,9 @@ describe("createOrefMqttSourceRuntime", () => {
           setCredentialsArg = credentials;
         },
       }),
-      fetchCityMap: async () => new Map([["1405", "תל אביב - יפו"]]),
+      fetchCityCatalog: async () => [
+        { id: "1405", label: "תל אביב - יפו | גוש דן", areaid: "7" },
+      ],
       validateCredentials: async () => ({ valid: true, validationStatus: "forbidden" }),
       registerDevice: async () => {
         throw new Error("register should not be called");
@@ -449,7 +451,7 @@ describe("createOrefMqttSourceRuntime", () => {
     assert.deepEqual(subscribedArgs, {
       token: "persisted-token",
       auth: "persisted-auth",
-      topics: ["com.alert.meserhadash"],
+      topics: ["com.alert.meserhadash", "1405", "5001405", "7"],
       timeoutMs: 4321,
     });
     assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_credentials_reused"));

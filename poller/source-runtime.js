@@ -6,6 +6,9 @@ import {
   createPolledSourceConfigs,
 } from "./source-registry.js";
 import {
+  buildOrefCityMap,
+  buildOrefMqttSubscriptionTopics,
+  fetchOrefCityCatalog,
   fetchOrefCityMap,
   OrefMqttStream,
   OREF_MQTT_DEFAULT_TOPICS,
@@ -315,6 +318,7 @@ export function createOrefMqttSourceRuntime({
   captureEntriesBySource = () => [],
   toIsoString = (timestampMs = Date.now()) => new Date(timestampMs).toISOString(),
   createStream = (options) => new OrefMqttStream(options),
+  fetchCityCatalog = fetchOrefCityCatalog,
   fetchCityMap = fetchOrefCityMap,
   registerDevice = registerOrefMqttDevice,
   validateCredentials = validateOrefMqttCredentials,
@@ -501,19 +505,36 @@ export function createOrefMqttSourceRuntime({
     if (!enabled || !stream) return;
 
     try {
-      const cityMap = await fetchCityMap({ timeoutMs });
+      const cityCatalog = await fetchCityCatalog({ timeoutMs });
+      const cityMap = buildOrefCityMap(cityCatalog);
       stream.setCityMap(cityMap);
       state.cityCount = cityMap.size;
+      state.topics = buildOrefMqttSubscriptionTopics(cityCatalog, {
+        baseTopics: configuredTopics,
+      });
       state.cityMapLoadedAt = toIsoString();
       state.cityMapError = null;
       logger.info("oref_mqtt_city_map_ready", {
         city_count: cityMap.size,
+        topics_count: state.topics.length,
       });
     } catch (err) {
-      state.cityMapError = err.message;
-      logger.warn("oref_mqtt_city_map_failed", {
-        error: err,
-      });
+      try {
+        const cityMap = await fetchCityMap({ timeoutMs });
+        stream.setCityMap(cityMap);
+        state.cityCount = cityMap.size;
+        state.cityMapLoadedAt = toIsoString();
+        state.cityMapError = null;
+        logger.info("oref_mqtt_city_map_ready", {
+          city_count: cityMap.size,
+          topics_count: state.topics.length,
+        });
+      } catch {
+        state.cityMapError = err.message;
+        logger.warn("oref_mqtt_city_map_failed", {
+          error: err,
+        });
+      }
     }
 
     let credentials = null;

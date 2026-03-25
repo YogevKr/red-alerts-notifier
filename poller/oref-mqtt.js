@@ -190,6 +190,29 @@ export function buildOrefCityMap(payload = []) {
   );
 }
 
+export function buildOrefMqttSubscriptionTopics(
+  payload = [],
+  { baseTopics = OREF_MQTT_DEFAULT_TOPICS } = {},
+) {
+  const topics = new Set(normalizeTopicList(baseTopics));
+
+  for (const city of Array.isArray(payload) ? payload : []) {
+    const cityId = String(city?.id || "").trim();
+    const areaId = String(city?.areaid || "").trim();
+
+    if (cityId) {
+      topics.add(cityId);
+      topics.add(`500${cityId}`);
+    }
+
+    if (areaId) {
+      topics.add(areaId);
+    }
+  }
+
+  return [...topics];
+}
+
 export function resolveOrefMqttCityNames(citiesIds = "", cityIdToName = new Map()) {
   return [...new Set(
     normalizeCityIds(citiesIds)
@@ -222,12 +245,19 @@ export function normalizeOrefMqttMessage(message = {}, cityIdToName = new Map())
 
 export async function fetchOrefCityMap({ fetchImpl = fetch, timeoutMs = 5000 } = {}) {
   return buildOrefCityMap(
-    await fetchJson(OREF_CITIES_URL, {
+    await fetchOrefCityCatalog({
       fetchImpl,
-      headers: OREF_HEADERS,
       timeoutMs,
     }),
   );
+}
+
+export async function fetchOrefCityCatalog({ fetchImpl = fetch, timeoutMs = 5000 } = {}) {
+  return fetchJson(OREF_CITIES_URL, {
+    fetchImpl,
+    headers: OREF_HEADERS,
+    timeoutMs,
+  });
 }
 
 export async function registerOrefMqttDevice({

@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildOrefMqttSubscriptionTopics,
   buildOrefMqttPushyDevicePayload,
   buildOrefCityMap,
   normalizeOrefMqttMessage,
@@ -21,6 +22,27 @@ describe("buildOrefCityMap", () => {
       [
         ["1405", "תל אביב - יפו"],
         ["1234", "רמת ישי"],
+      ],
+    );
+  });
+});
+
+describe("buildOrefMqttSubscriptionTopics", () => {
+  it("builds the Pushy topic set from city, segment, and area ids", () => {
+    assert.deepEqual(
+      buildOrefMqttSubscriptionTopics([
+        { id: "1405", areaid: "7" },
+        { id: "1234", areaid: "9" },
+        { id: "1405", areaid: "7" },
+      ]),
+      [
+        "com.alert.meserhadash",
+        "1405",
+        "5001405",
+        "7",
+        "1234",
+        "5001234",
+        "9",
       ],
     );
   });
