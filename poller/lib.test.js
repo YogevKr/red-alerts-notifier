@@ -33,6 +33,7 @@ import {
     resolveMessageMediaBaseName,
     resolveMediaAssetFilename,
 } from "./lib.js";
+import { MESSAGE_TEMPLATES } from "./message-templates.js";
 
 describe("parseLocations", () => {
   it("splits comma-separated locations", () => {
@@ -932,6 +933,26 @@ describe("formatMessage", () => {
       msg,
       "שלישי | 10.3.2026 | שעה 14:56\n\n*הודעת עדכון מצח\"י תל אביב - יפו:*\n\n*האירוע הסתיים - ניתן לצאת מהמרחב המוגן.*\n\n*אין צורך לשהות בסמוך למרחב מוגן.*",
     );
+  });
+
+  it("formats the optional version tag when configured", () => {
+    const previous = MESSAGE_TEMPLATES.whatsapp.versionTag;
+    MESSAGE_TEMPLATES.whatsapp.versionTag = "Ver 2.0";
+
+    try {
+      const alert = { title: "ירי רקטות וטילים", cat: "1" };
+      const msg = formatMessage(alert, ["תל אביב - יפו"], {
+        eventType: EVENT_TYPES.ACTIVE_ALERT,
+        timestamp: "2026-03-10T14:46:00+02:00",
+      });
+
+      assert.equal(
+        msg,
+        "שלישי | 10.3.2026 | שעה 14:46\n\n*Ver 2.0*\n\n*הודעת עדכון מצח\"י תל אביב - יפו:*\n\n*ירי טילים ורקטות באזורך.*\n\n*יש להכנס למרחב המוגן ולשהות בו עד לקבלת הודעת שחרור.*",
+      );
+    } finally {
+      MESSAGE_TEMPLATES.whatsapp.versionTag = previous;
+    }
   });
 
   it("formats stay-nearby update message", () => {

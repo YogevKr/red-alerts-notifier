@@ -50,4 +50,25 @@ describe("message template overrides", () => {
 
     assert.deepEqual(templates, DEFAULT_MESSAGE_TEMPLATES);
   });
+
+  it("overrides the optional version tag", () => {
+    const dirPath = mkdtempSync(join(tmpdir(), "message-templates-version-"));
+    const overrideFilePath = join(dirPath, "message-templates.override.json");
+    writeFileSync(
+      overrideFilePath,
+      JSON.stringify({
+        whatsapp: {
+          versionTag: "Ver 2.0",
+        },
+      }),
+      "utf8",
+    );
+
+    const templates = loadMessageTemplates({
+      defaultTemplates: DEFAULT_MESSAGE_TEMPLATES,
+      overrideFilePath,
+    });
+
+    assert.equal(templates.whatsapp.versionTag, "Ver 2.0");
+  });
 });

@@ -436,15 +436,17 @@ export function formatMessage(alert, matched = [], options = {}) {
     throw new Error(`Unknown event type: ${eventType}`);
   }
   const timestamp = formatEventTimestamp(options.timestamp || alert.alertDate);
+  const versionTag = String(WHATSAPP.versionTag || "").trim();
   const locationLabel = [...matched]
     .map((location) => location.trim())
     .filter(Boolean)
     .join(", ");
+  const versionLine = versionTag ? `\n\n*${versionTag}*` : "";
   const updateLine = locationLabel
     ? `\n\n*הודעת עדכון מצח"י ${locationLabel}:*`
     : `\n\n*הודעת עדכון מצח"י:*`;
 
-  return `${timestamp}${updateLine}\n\n${formatBoldBody(resolveMessageBody(alert, { eventType }))}`;
+  return `${timestamp}${versionLine}${updateLine}\n\n${formatBoldBody(resolveMessageBody(alert, { eventType }))}`;
 }
 
 export function resolveMessageMediaBaseName(alert = {}, eventType = detectEventType(alert)) {

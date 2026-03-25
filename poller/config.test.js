@@ -13,6 +13,7 @@ describe("createPollerConfig", () => {
       OREF_MQTT_ENABLED: "true",
       OREF_MQTT_TOPICS: "com.alert.meserhadash,alerts",
       OREF_MQTT_RAW_LOG_ENABLED: "true",
+      OREF_MQTT_ROTATE_MS: "60000",
       OREF_ALERTS_POLL_INTERVAL_MS: "1000",
       OREF_HISTORY_POLL_INTERVAL_MS: "5000",
       POLL_INTERVAL_MS: "2000",
@@ -30,6 +31,7 @@ describe("createPollerConfig", () => {
     assert.deepEqual(config.sources.realtimeNames, ["oref_mqtt"]);
     assert.equal(config.timing.pollTickIntervalMs, 5000);
     assert.equal(config.orefMqtt.enabled, true);
+    assert.equal(config.orefMqtt.rotateIntervalMs, 60000);
     assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
     assert.equal(config.orefMqtt.rawLogEnabled, true);
     assert.equal(config.tzevaadom.enabled, false);
@@ -66,5 +68,21 @@ describe("createPollerConfig", () => {
 
     assert.equal(defaultConfig.sourceEventLedger.enabled, false);
     assert.equal(enabledConfig.sourceEventLedger.enabled, true);
+  });
+
+  it("uses the full documented mqtt topic set by default", () => {
+    const config = createPollerConfig({
+      WHATSAPP_TARGETS: "telegram:1",
+      OREF_MQTT_ENABLED: "true",
+      ACTIVE_SOURCES: "oref_mqtt",
+    });
+
+    assert.deepEqual(config.orefMqtt.topics, [
+      "com.alert.meserhadash",
+      "alerts",
+      "all",
+      "broadcast",
+    ]);
+    assert.equal(config.orefMqtt.rotateIntervalMs, 300000);
   });
 });

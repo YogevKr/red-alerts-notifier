@@ -383,6 +383,7 @@ describe("createOrefMqttSourceRuntime", () => {
     const runtime = createOrefMqttSourceRuntime({
       enabled: true,
       topics: ["com.alert.meserhadash"],
+      rotateIntervalMs: 60_000,
       rawLogEnabled: false,
       rawLogPath: join(dir, "raw-log.json"),
       credentialsPath,
@@ -447,6 +448,7 @@ describe("createOrefMqttSourceRuntime", () => {
     assert.equal("topics" in snapshot.oref_mqtt, false);
     assert.equal(snapshot.oref_mqtt.credentialsValidationStatus, "forbidden");
     assert.equal(snapshot.oref_mqtt.credentialsUsable, true);
+    assert.equal(snapshot.oref_mqtt.rotateIntervalMs, 60_000);
     assert.equal(snapshot.oref_mqtt.credentialsError, null);
     assert.ok(snapshot.oref_mqtt.credentialsLoadedAt);
     assert.ok(snapshot.oref_mqtt.topicsSubscribedAt);

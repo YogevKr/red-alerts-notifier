@@ -23,7 +23,11 @@ const MAX_RECENT_SENT = 100;
 const CONFIGURABLE_SOURCE_NAMES = new Set(getConfigurableSourceNames());
 const DEFAULT_OREF_MQTT_TOPICS = [
   "com.alert.meserhadash",
+  "alerts",
+  "all",
+  "broadcast",
 ];
+const DEFAULT_OREF_MQTT_ROTATE_INTERVAL_MS = 5 * 60 * 1000;
 
 function parseCsvValues(csv = "") {
   return [...new Set(
@@ -91,6 +95,7 @@ export function createPollerConfig(env = process.env) {
     ACTIVE_SOURCES = "",
     OREF_MQTT_ENABLED = "false",
     OREF_MQTT_RECONNECT_MS = "5000",
+    OREF_MQTT_ROTATE_MS = String(DEFAULT_OREF_MQTT_ROTATE_INTERVAL_MS),
     OREF_MQTT_TOPICS = "",
     OREF_MQTT_RAW_LOG_ENABLED = "false",
     OREF_MQTT_RAW_LOG_MAX_ENTRIES = "500",
@@ -150,6 +155,10 @@ export function createPollerConfig(env = process.env) {
   });
   const orefMqttEnabled = parseBooleanEnv(OREF_MQTT_ENABLED);
   const orefMqttReconnectDelayMs = parsePositiveIntEnv(OREF_MQTT_RECONNECT_MS, 5000);
+  const orefMqttRotateIntervalMs = parsePositiveIntEnv(
+    OREF_MQTT_ROTATE_MS,
+    DEFAULT_OREF_MQTT_ROTATE_INTERVAL_MS,
+  );
   const configuredOrefMqttTopics = parseCsvValues(OREF_MQTT_TOPICS);
   const tzevaadomEnabled = parseBooleanEnv(TZEVAADOM_ENABLED);
   const tzevaadomReconnectDelayMs = parsePositiveIntEnv(TZEVAADOM_RECONNECT_MS, 5000);
@@ -211,6 +220,7 @@ export function createPollerConfig(env = process.env) {
     orefMqtt: {
       enabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT),
       reconnectDelayMs: orefMqttReconnectDelayMs,
+      rotateIntervalMs: orefMqttRotateIntervalMs,
       topics: configuredOrefMqttTopics.length > 0
         ? configuredOrefMqttTopics
         : [...DEFAULT_OREF_MQTT_TOPICS],

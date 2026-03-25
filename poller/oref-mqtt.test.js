@@ -285,5 +285,67 @@ describe("OrefMqttStream", () => {
     assert.deepEqual(alerts[0].data, ["תל אביב - יפו", "רמת ישי"]);
     assert.equal(stream.status().connected, true);
     assert.equal(stream.status().alertCount, 1);
+    stream.stop();
+  });
+
+  it("rotates to a fresh broker on the configured interval", () => {
+    class FakeClient extends EventEmitter {
+      constructor(name) {
+        super();
+        this.name = name;
+        this.subscription = null;
+        this.endCalls = [];
+      }
+
+      subscribe(topic, options, callback) {
+        this.subscription = { topic, options };
+        callback?.(null);
+      }
+
+      end(force = false) {
+        this.endCalls.push(force);
+      }
+    }
+
+    const clients = [];
+    const timers = [];
+    const stream = new OrefMqttStream({
+      token: "device-token",
+      auth: "device-auth",
+      rotateIntervalMs: 60_000,
+      brokerUrlFactory: (() => {
+        let index = 0;
+        return () => `mqtts://mqtt-${++index}.ioref.io:443`;
+      })(),
+      setTimeoutImpl(callback, delay) {
+        const timer = { callback, delay, cleared: false };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeoutImpl(timer) {
+        timer.cleared = true;
+      },
+      mqttConnect(url) {
+        const client = new FakeClient(url);
+        clients.push(client);
+        return client;
+      },
+      logger: { log() {}, error() {} },
+    });
+
+    stream.start();
+    clients[0].emit("connect");
+
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].delay, 60_000);
+    assert.equal(stream.status().brokerUrl, "mqtts://mqtt-1.ioref.io:443");
+
+    timers[0].callback();
+
+    assert.deepEqual(clients[0].endCalls, [true]);
+    assert.equal(clients.length, 2);
+    assert.equal(stream.status().connected, false);
+    assert.equal(stream.status().brokerUrl, "mqtts://mqtt-2.ioref.io:443");
+    stream.stop();
   });
 });

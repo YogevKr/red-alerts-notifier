@@ -13,6 +13,7 @@ export const OREF_MQTT_ANDROID_ID_SUFFIX = "-Google-Android-SDK-built-for-x86_64
 export const OREF_MQTT_DEFAULT_TOPICS = [
   "com.alert.meserhadash",
 ];
+export const OREF_MQTT_DEFAULT_ROTATE_INTERVAL_MS = 5 * 60 * 1000;
 
 const OREF_HEADERS = {
   Referer: "https://www.oref.org.il/",
@@ -398,8 +399,11 @@ export class OrefMqttStream {
     logger = console,
     mqttConnect = defaultMqttConnect,
     reconnectDelayMs = 5000,
+    rotateIntervalMs = OREF_MQTT_DEFAULT_ROTATE_INTERVAL_MS,
     keepaliveSeconds = 300,
     brokerUrlFactory = buildOrefMqttBrokerUrl,
+    setTimeoutImpl = setTimeout,
+    clearTimeoutImpl = clearTimeout,
     cityIdToName = new Map(),
     queueAlerts = true,
     token = "",
@@ -412,8 +416,11 @@ export class OrefMqttStream {
     this.logger = logger;
     this.mqttConnect = mqttConnect;
     this.reconnectDelayMs = reconnectDelayMs;
+    this.rotateIntervalMs = Number(rotateIntervalMs) > 0 ? Number(rotateIntervalMs) : 0;
     this.keepaliveSeconds = keepaliveSeconds;
     this.brokerUrlFactory = brokerUrlFactory;
+    this.setTimeoutImpl = setTimeoutImpl;
+    this.clearTimeoutImpl = clearTimeoutImpl;
     this.cityIdToName = cityIdToName;
     this.queueAlerts = Boolean(queueAlerts);
     this.token = String(token || "").trim();
@@ -439,6 +446,7 @@ export class OrefMqttStream {
     this.lastConnectionError = null;
     this.lastTopic = null;
     this.brokerUrl = null;
+    this.rotationTimer = null;
   }
 
   setCredentials({ token = "", auth = "" } = {}) {
@@ -459,6 +467,7 @@ export class OrefMqttStream {
   stop() {
     this.started = false;
     this.connected = false;
+    this.clearRotationTimer();
     this.client?.end(true);
     this.client = null;
   }
@@ -501,6 +510,33 @@ export class OrefMqttStream {
     this.onConnectionStateChange?.(this.status());
   }
 
+  clearRotationTimer() {
+    if (!this.rotationTimer) return;
+    this.clearTimeoutImpl(this.rotationTimer);
+    this.rotationTimer = null;
+  }
+
+  scheduleRotation() {
+    this.clearRotationTimer();
+    if (!this.rotateIntervalMs || !this.started) return;
+    this.rotationTimer = this.setTimeoutImpl(() => {
+      this.rotationTimer = null;
+      this.rotateBroker();
+    }, this.rotateIntervalMs);
+  }
+
+  rotateBroker() {
+    if (!this.started || !this.client) return;
+    const currentClient = this.client;
+    this.logger.log("Rotating oref mqtt broker");
+    this.connected = false;
+    this.clearRotationTimer();
+    this.client = null;
+    currentClient.end(true);
+    this.notifyConnectionStateChange();
+    this.connect();
+  }
+
   connect() {
     if (!this.started || !this.token || !this.auth) return;
 
@@ -518,10 +554,12 @@ export class OrefMqttStream {
     this.client = client;
 
     client.on("connect", () => {
+      if (this.client !== client) return;
       this.connected = true;
       this.lastConnectionError = null;
       this.logger.log("Connected to oref mqtt broker");
       client.subscribe(this.token, { qos: 1 }, (err) => {
+        if (this.client !== client) return;
         if (err) {
           this.lastConnectionErrorAt = new Date().toISOString();
           this.lastConnectionError = err.message;
@@ -530,11 +568,13 @@ export class OrefMqttStream {
           return;
         }
 
+        this.scheduleRotation();
         this.notifyConnectionStateChange();
       });
     });
 
     client.on("message", (topic, payload) => {
+      if (this.client !== client) return;
       const now = new Date().toISOString();
       const raw = payload.toString("utf8").trim();
       if (!raw) return;
@@ -581,19 +621,25 @@ export class OrefMqttStream {
     });
 
     client.on("reconnect", () => {
+      if (this.client !== client) return;
       this.connected = false;
+      this.clearRotationTimer();
       this.logger.log("Reconnecting to oref mqtt broker");
       this.notifyConnectionStateChange();
     });
 
     client.on("close", () => {
+      if (this.client !== client) return;
       this.connected = false;
+      this.clearRotationTimer();
       this.notifyConnectionStateChange();
     });
 
     client.on("error", (err) => {
+      if (this.client !== client) return;
       this.lastConnectionErrorAt = new Date().toISOString();
       this.lastConnectionError = err.message;
+      this.clearRotationTimer();
       this.logger.error(`Oref mqtt broker error: ${err.message}`);
       this.notifyConnectionStateChange();
     });

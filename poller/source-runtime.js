@@ -308,6 +308,7 @@ export function createTzevaadomSourceRuntime({
 export function createOrefMqttSourceRuntime({
   enabled = false,
   reconnectDelayMs = 5000,
+  rotateIntervalMs = 5 * 60 * 1000,
   topics = OREF_MQTT_DEFAULT_TOPICS,
   credentialsPath = "",
   rawLogPath = "",
@@ -353,6 +354,7 @@ export function createOrefMqttSourceRuntime({
     ? createStream({
       logger: createRealtimeStreamLogger(source, logger),
       reconnectDelayMs,
+      rotateIntervalMs,
       queueAlerts: false,
       onRawMessage: (message) => {
         captureRealtimeEntries(source, [{
@@ -398,6 +400,7 @@ export function createOrefMqttSourceRuntime({
       [source]: {
         enabled: true,
         reconnectDelayMs,
+        rotateIntervalMs,
         topicCount: state.topicCount,
         cityMapLoadedAt: state.cityMapLoadedAt,
         cityMapError: state.cityMapError,
@@ -577,6 +580,7 @@ export function createOrefMqttSourceRuntime({
     stream.start();
     logger.info("oref_mqtt_stream_started", {
       reconnect_delay_ms: reconnectDelayMs,
+      rotate_interval_ms: rotateIntervalMs,
       topics_count: topicsToSubscribe.length,
     });
   }
