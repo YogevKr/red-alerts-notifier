@@ -6,45 +6,82 @@ export const SOURCE_EVENT_LEDGER_TABLE =
   `${NOTIFICATION_OUTBOX_SCHEMA}.${SOURCE_EVENT_LEDGER_BASENAME}`;
 
 export const INSERT_SOURCE_EVENT_SQL = `
-insert into ${SOURCE_EVENT_LEDGER_TABLE} (
-  observed_at,
-  source_received_at,
-  alert_date,
-  source_event_at,
-  source,
-  source_key,
-  source_message_id,
-  source_message_type,
-  semantic_key,
-  event_type,
-  category,
-  title,
-  source_meta,
-  raw_locations,
-  matched_locations,
-  outcome,
-  created_at
+with existing as (
+  select id
+  from ${SOURCE_EVENT_LEDGER_TABLE}
+  where source = $5
+    and source_key = $6
+    and outcome = $16
+  order by observed_at desc, id desc
+  limit 1
+),
+updated as (
+  update ${SOURCE_EVENT_LEDGER_TABLE}
+  set
+    observed_at = $1,
+    source_received_at = $2,
+    alert_date = $3,
+    source_event_at = $4,
+    source_message_id = $7,
+    source_message_type = $8,
+    semantic_key = $9,
+    event_type = $10,
+    category = $11,
+    title = $12,
+    source_meta = $13::jsonb,
+    raw_locations = $14::jsonb,
+    matched_locations = $15::jsonb,
+    observation_count = coalesce(observation_count, 1) + 1
+  where id = (select id from existing)
+  returning id, observed_at, source, source_key, semantic_key, event_type, outcome, observation_count
+),
+inserted as (
+  insert into ${SOURCE_EVENT_LEDGER_TABLE} (
+    observed_at,
+    source_received_at,
+    alert_date,
+    source_event_at,
+    source,
+    source_key,
+    source_message_id,
+    source_message_type,
+    semantic_key,
+    event_type,
+    category,
+    title,
+    source_meta,
+    raw_locations,
+    matched_locations,
+    outcome,
+    observation_count,
+    created_at
+  )
+  select
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    $11,
+    $12,
+    $13::jsonb,
+    $14::jsonb,
+    $15::jsonb,
+    $16,
+    1,
+    $1
+  where not exists (select 1 from existing)
+  returning id, observed_at, source, source_key, semantic_key, event_type, outcome, observation_count
 )
-	values (
-	  $1,
-	  $2,
-	  $3,
-	  $4,
-	  $5,
-	  $6,
-	  $7,
-	  $8,
-	  $9,
-	  $10,
-	  $11,
-	  $12,
-	  $13::jsonb,
-	  $14::jsonb,
-	  $15::jsonb,
-	  $16,
-	  $1
-	)
-returning id, observed_at, source, source_key, semantic_key, event_type, outcome
+select * from updated
+union all
+select * from inserted
+limit 1
 `;
 
 const CREATE_SOURCE_EVENT_TABLE_SQL = `
@@ -66,6 +103,7 @@ create table if not exists ${SOURCE_EVENT_LEDGER_TABLE} (
   raw_locations jsonb not null default '[]'::jsonb,
   matched_locations jsonb not null default '[]'::jsonb,
   outcome text not null,
+  observation_count integer not null default 1,
   created_at timestamptz not null default now()
 );
 `;
@@ -77,7 +115,8 @@ alter table ${SOURCE_EVENT_LEDGER_TABLE}
   add column if not exists source_message_type text,
   add column if not exists category text,
   add column if not exists source_meta jsonb not null default '{}'::jsonb,
-  add column if not exists raw_locations jsonb not null default '[]'::jsonb;
+  add column if not exists raw_locations jsonb not null default '[]'::jsonb,
+  add column if not exists observation_count integer not null default 1;
 `;
 
 const CREATE_OBSERVED_AT_INDEX_SQL = `
@@ -114,7 +153,8 @@ with deduped as (
     source_meta,
     raw_locations,
     matched_locations,
-    outcome
+    outcome,
+    observation_count
   from ${SOURCE_EVENT_LEDGER_TABLE}
   where source = any($1::text[])
   order by source, source_key, observed_at desc, id desc
@@ -138,6 +178,7 @@ ranked as (
     raw_locations,
     matched_locations,
     outcome,
+    observation_count,
     row_number() over (
       partition by source
       order by observed_at desc, id desc
@@ -161,7 +202,8 @@ select
   source_meta,
   raw_locations,
   matched_locations,
-  outcome
+  outcome,
+  observation_count
 from ranked
 where source_rank <= $2
 order by source asc, observed_at desc, id desc

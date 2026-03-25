@@ -33,12 +33,14 @@ describe("ensureSourceEventLedgerSchema", () => {
     assert.match(queries[1], /source_meta jsonb not null default '\{\}'::jsonb/i);
     assert.match(queries[1], /raw_locations jsonb not null default '\[\]'::jsonb/i);
     assert.match(queries[1], /matched_locations jsonb not null default '\[\]'::jsonb/i);
+    assert.match(queries[1], /observation_count integer not null default 1/i);
     assert.match(queries[2], /add column if not exists source_event_at timestamptz/i);
     assert.match(queries[2], /add column if not exists source_message_id text/i);
     assert.match(queries[2], /add column if not exists source_message_type text/i);
     assert.match(queries[2], /add column if not exists category text/i);
     assert.match(queries[2], /add column if not exists source_meta jsonb not null default '\{\}'::jsonb/i);
     assert.match(queries[2], /add column if not exists raw_locations jsonb not null default '\[\]'::jsonb/i);
+    assert.match(queries[2], /add column if not exists observation_count integer not null default 1/i);
     assert.match(queries[3], /create index if not exists source_events_observed_at_idx/i);
     assert.match(queries[4], /create index if not exists source_events_semantic_key_idx/i);
     assert.match(queries[5], /create index if not exists source_events_source_observed_idx/i);
@@ -79,7 +81,11 @@ describe("PostgresSourceEventLedger", () => {
     assert.equal(calls[0].text, INSERT_SOURCE_EVENT_SQL);
     assert.match(
       INSERT_SOURCE_EVENT_SQL,
-      /\$12,\s*\$13::jsonb,\s*\$14::jsonb,\s*\$15::jsonb,\s*\$16,\s*\$1/i,
+      /observation_count = coalesce\(observation_count, 1\) \+ 1/i,
+    );
+    assert.match(
+      INSERT_SOURCE_EVENT_SQL,
+      /where source = \$5\s+and source_key = \$6\s+and outcome = \$16/i,
     );
     assert.deepEqual(calls[0].values, [
       "2026-03-24T21:10:00.000Z",
@@ -118,6 +124,7 @@ describe("PostgresSourceEventLedger", () => {
                 raw_locations: ["תל אביב - יפו"],
                 matched_locations: ["תל אביב - יפו"],
                 outcome: "enqueued",
+                observation_count: 3,
               },
               {
                 source: "tzevaadom",
@@ -127,6 +134,7 @@ describe("PostgresSourceEventLedger", () => {
                 raw_locations: [],
                 matched_locations: [],
                 outcome: "location_miss",
+                observation_count: 8,
               },
             ],
           };
@@ -149,6 +157,7 @@ describe("PostgresSourceEventLedger", () => {
         raw_locations: ["תל אביב - יפו"],
         matched_locations: ["תל אביב - יפו"],
         outcome: "enqueued",
+        observation_count: 3,
       },
       {
         source: "tzevaadom",
@@ -158,6 +167,7 @@ describe("PostgresSourceEventLedger", () => {
         raw_locations: [],
         matched_locations: [],
         outcome: "location_miss",
+        observation_count: 8,
       },
     ]);
   });

@@ -73,6 +73,7 @@ function buildRecentFlowGroups({
       outcome: String(entry.outcome || "unknown"),
       at,
       atMs,
+      count: Math.max(1, Number.parseInt(entry.observationCount, 10) || 1),
     });
     groups.set(semanticKey, current);
   }
@@ -95,6 +96,7 @@ function buildRecentFlowGroups({
       outcome: "sent",
       at,
       atMs,
+      count: Math.max(1, Number.parseInt(entry.observationCount, 10) || 1),
     });
     groups.set(semanticKey, current);
   }
@@ -118,28 +120,7 @@ function buildFlowSummary(group = {}) {
   const steps = Array.isArray(group.steps) ? group.steps : [];
   if (steps.length === 0) return "";
   const firstStepAtMs = steps[0]?.atMs ?? null;
-  const compressedSteps = [];
-
-  for (const step of steps) {
-    const previous = compressedSteps[compressedSteps.length - 1];
-    if (
-      previous
-      && previous.source === step.source
-      && previous.outcome === step.outcome
-    ) {
-      previous.count += 1;
-      previous.lastAt = step.at;
-      previous.lastAtMs = step.atMs;
-      continue;
-    }
-
-    compressedSteps.push({
-      ...step,
-      count: 1,
-      lastAt: step.at,
-      lastAtMs: step.atMs,
-    });
-  }
+  const compressedSteps = compressFlowSteps(steps);
 
   const summary = compressedSteps
     .map((step) => {
@@ -160,7 +141,35 @@ function formatFlowStep(step = {}, firstStepAtMs = null) {
   const deltaSuffix = Number.isFinite(firstStepAtMs) && Number.isFinite(step.atMs)
     ? ` (+${formatTimelineDelta(step.atMs - firstStepAtMs)})`
     : "";
-  return `${formatStatusTimestamp(step.at)}${deltaSuffix} | ${step.source} | ${step.outcome}`;
+  const countSuffix = step.count > 1 ? ` x${step.count}` : "";
+  return `${formatStatusTimestamp(step.at)}${deltaSuffix} | ${step.source} | ${step.outcome}${countSuffix}`;
+}
+
+function compressFlowSteps(steps = []) {
+  const compressedSteps = [];
+
+  for (const step of steps) {
+    const previous = compressedSteps[compressedSteps.length - 1];
+    if (
+      previous
+      && previous.source === step.source
+      && previous.outcome === step.outcome
+    ) {
+      previous.count += 1;
+      previous.lastAt = step.at;
+      previous.lastAtMs = step.atMs;
+      continue;
+    }
+
+    compressedSteps.push({
+      ...step,
+      count: Math.max(1, Number.parseInt(step.count, 10) || 1),
+      lastAt: step.at,
+      lastAtMs: step.atMs,
+    });
+  }
+
+  return compressedSteps;
 }
 
 export function loadRecentSentEntries(filePath, logger = console) {
@@ -211,7 +220,7 @@ export function appendRecentAlertFlowEntry(
   } = {},
 ) {
   const entries = loadRecentAlertFlowEntries(filePath, logger);
-  entries.unshift({
+  const nextEntry = {
     observedAt: entry.observedAt ? String(entry.observedAt) : null,
     receivedAt: entry.receivedAt ? String(entry.receivedAt) : null,
     alertDate: entry.alertDate ? String(entry.alertDate) : null,
@@ -222,7 +231,25 @@ export function appendRecentAlertFlowEntry(
     semanticKey: String(entry.semanticKey || ""),
     sourceKey: String(entry.sourceKey || ""),
     outcome: String(entry.outcome || "unknown"),
-  });
+    observationCount: Math.max(1, Number.parseInt(entry.observationCount, 10) || 1),
+  };
+
+  const existingIndex = entries.findIndex((candidate) =>
+    String(candidate?.source || "unknown") === nextEntry.source
+    && String(candidate?.sourceKey || "") === nextEntry.sourceKey
+    && String(candidate?.semanticKey || "") === nextEntry.semanticKey
+    && String(candidate?.outcome || "unknown") === nextEntry.outcome,
+  );
+
+  if (existingIndex >= 0) {
+    const existing = entries.splice(existingIndex, 1)[0];
+    nextEntry.observationCount += Math.max(
+      1,
+      Number.parseInt(existing?.observationCount, 10) || 1,
+    );
+  }
+
+  entries.unshift(nextEntry);
   while (entries.length > maxEntries) entries.pop();
   persistJsonList(filePath, entries);
   return entries;
@@ -268,6 +295,7 @@ export function buildRecentFlowMessage({
   activityEntries = [],
   sentEntries = [],
   limit = 3,
+  maxStepsPerGroup = 20,
 } = {}) {
   const groups = buildRecentFlowGroups({
     activityEntries,
@@ -283,8 +311,12 @@ export function buildRecentFlowMessage({
     lines.push(
       `${formatFlowTitle(group.title, group.eventType)} | ${formatFlowLocations(group.matchedLocations)}`,
     );
-    for (const step of group.steps) {
+    const compressedSteps = compressFlowSteps(group.steps);
+    for (const step of compressedSteps.slice(0, Math.max(1, maxStepsPerGroup))) {
       lines.push(formatFlowStep(step, group.firstStepAtMs));
+    }
+    if (compressedSteps.length > maxStepsPerGroup) {
+      lines.push(`... ${compressedSteps.length - maxStepsPerGroup} more compressed step(s)`);
     }
   }
   return lines.join("\n");

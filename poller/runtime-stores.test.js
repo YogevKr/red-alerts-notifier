@@ -149,6 +149,84 @@ describe("createRuntimeStores", () => {
     );
   });
 
+  it("collapses repeated same source event observations at write time", () => {
+    const { stores } = createStoresFixture();
+
+    stores.rememberRecentAlertFlow({
+      observedAt: "2026-03-24T00:33:10.000Z",
+      receivedAt: "2026-03-24T00:33:10.000Z",
+      alertDate: "2026-03-24 02:33:10",
+      source: "oref_history",
+      eventType: "all_clear",
+      title: "האירוע הסתיים",
+      matchedLocations: [],
+      semanticKey: "flow-repeat-same",
+      sourceKey: "oref_history:123",
+      outcome: "location_miss",
+    });
+    stores.rememberRecentAlertFlow({
+      observedAt: "2026-03-24T00:33:15.000Z",
+      receivedAt: "2026-03-24T00:33:15.000Z",
+      alertDate: "2026-03-24 02:33:15",
+      source: "oref_history",
+      eventType: "all_clear",
+      title: "האירוע הסתיים",
+      matchedLocations: [],
+      semanticKey: "flow-repeat-same",
+      sourceKey: "oref_history:123",
+      outcome: "location_miss",
+    });
+    stores.rememberRecentAlertFlow({
+      observedAt: "2026-03-24T00:33:20.000Z",
+      receivedAt: "2026-03-24T00:33:20.000Z",
+      alertDate: "2026-03-24 02:33:20",
+      source: "oref_history",
+      eventType: "all_clear",
+      title: "האירוע הסתיים",
+      matchedLocations: [],
+      semanticKey: "flow-repeat-same",
+      sourceKey: "oref_history:123",
+      outcome: "location_miss",
+    });
+
+    assert.equal(
+      stores.buildRecentFlowMessage(1),
+      [
+        "recent_flow:",
+        "האירוע הסתיים | unknown",
+        "2026-03-24 02:33:20 (+0ms) | oref_history | location_miss x3",
+      ].join("\n"),
+    );
+  });
+
+  it("compresses repeated recent flow steps in the command output", () => {
+    const { stores } = createStoresFixture();
+
+    for (let index = 0; index < 20; index += 1) {
+      stores.rememberRecentAlertFlow({
+        observedAt: `2026-03-24T00:33:${String(10 + index).padStart(2, "0")}.000Z`,
+        receivedAt: `2026-03-24T00:33:${String(10 + index).padStart(2, "0")}.000Z`,
+        alertDate: "2026-03-24 02:33:32",
+        source: "oref_history",
+        eventType: "all_clear",
+        title: "האירוע הסתיים",
+        matchedLocations: ["תל אביב - יפו"],
+        semanticKey: "flow-repeat",
+        sourceKey: `oref_history:${index}`,
+        outcome: "location_miss",
+      });
+    }
+
+    assert.equal(
+      stores.buildRecentFlowMessage(1),
+      [
+        "recent_flow:",
+        "האירוע הסתיים | תל אביב - יפו",
+        "2026-03-24 02:33:10 (+0ms) | oref_history | location_miss x20",
+      ].join("\n"),
+    );
+  });
+
   it("builds recent received output from DB rows per active source", async () => {
     const { stores } = createStoresFixture();
     stores.setRecentSourceEventsLoader(async () => [
