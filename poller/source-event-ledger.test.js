@@ -86,7 +86,7 @@ describe("PostgresSourceEventLedger", () => {
     );
     assert.match(
       INSERT_SOURCE_EVENT_SQL,
-      /where source = \$5\s+and source_key = \$6\s+and outcome = \$16/i,
+      /where source_key = \$6\s+and outcome = \$16/i,
     );
     assert.deepEqual(calls[0].values, [
       "2026-03-24T21:10:00.000Z",

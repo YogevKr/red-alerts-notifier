@@ -527,14 +527,23 @@ export class OrefMqttStream {
 
   rotateBroker() {
     if (!this.started || !this.client) return;
-    const currentClient = this.client;
+    const oldClient = this.client;
     this.logger.log("Rotating oref mqtt broker");
-    this.connected = false;
     this.clearRotationTimer();
     this.client = null;
-    currentClient.end(true);
-    this.notifyConnectionStateChange();
     this.connect();
+    const newClient = this.client;
+    if (newClient) {
+      const teardown = () => {
+        if (oldClient) oldClient.end(true);
+      };
+      newClient.once("connect", teardown);
+      newClient.once("error", teardown);
+    } else {
+      oldClient.end(true);
+      this.connected = false;
+      this.notifyConnectionStateChange();
+    }
   }
 
   connect() {

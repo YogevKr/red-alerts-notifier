@@ -9,8 +9,7 @@ export const INSERT_SOURCE_EVENT_SQL = `
 with existing as (
   select id
   from ${SOURCE_EVENT_LEDGER_TABLE}
-  where source = $5
-    and source_key = $6
+  where source_key = $6
     and outcome = $16
   order by observed_at desc, id desc
   limit 1
@@ -136,7 +135,7 @@ on ${SOURCE_EVENT_LEDGER_TABLE} (source, observed_at desc, id desc);
 
 const CREATE_UPSERT_LOOKUP_INDEX_SQL = `
 create index if not exists source_events_upsert_lookup_idx
-on ${SOURCE_EVENT_LEDGER_TABLE} (source, source_key, outcome, observed_at desc, id desc);
+on ${SOURCE_EVENT_LEDGER_TABLE} (source_key, outcome, observed_at desc, id desc);
 `;
 
 export const LIST_RECENT_SOURCE_EVENTS_SQL = `

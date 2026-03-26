@@ -342,10 +342,14 @@ describe("OrefMqttStream", () => {
 
     timers[0].callback();
 
-    assert.deepEqual(clients[0].endCalls, [true]);
+    assert.deepEqual(clients[0].endCalls, [], "old client still alive until new connects");
     assert.equal(clients.length, 2);
-    assert.equal(stream.status().connected, false);
     assert.equal(stream.status().brokerUrl, "mqtts://mqtt-2.ioref.io:443");
+
+    clients[1].emit("connect");
+
+    assert.deepEqual(clients[0].endCalls, [true], "old client torn down after new connects");
+    assert.equal(stream.status().connected, true);
     stream.stop();
   });
 });
