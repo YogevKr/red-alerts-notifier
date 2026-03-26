@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createLogger, createRepeatedEventLogger } from "./log.js";
 import {
   buildTelegramStatusMessage,
   buildTelegramConfirmationMarkup,
@@ -34,6 +35,10 @@ const telegramEnabled =
 const appDir = dirname(fileURLToPath(import.meta.url));
 const runtimeStatePath = join(appDir, "data", "runtime-state.json");
 const runtimeState = loadRuntimeState();
+const logger = createLogger("telegram-bot");
+const repeatedEventLogger = createRepeatedEventLogger(logger, {
+  intervalMs: telegramPollRetryMs * 6,
+});
 const monitor = {
   enabled: telegramEnabled,
   lastPollAt: null,
@@ -62,7 +67,10 @@ function loadRuntimeState() {
     };
   } catch (err) {
     if (err?.code !== "ENOENT") {
-      console.warn(`Could not load Telegram runtime state ${runtimeStatePath}: ${err.message}`);
+      logger.warn("telegram_runtime_state_load_failed", {
+        runtime_state_path: runtimeStatePath,
+        error: err,
+      });
     }
     return defaults;
   }
@@ -116,9 +124,19 @@ async function sendTelegramMessageWithMarkup(chatId, text, replyMarkup, options 
 }
 
 function logTelegramRetry(method, context, detail) {
-  console.warn(
-    `Telegram ${method} retry ${detail.attempt} in ${detail.delayMs}ms` +
-      ` (${formatTelegramError(detail.error)}; ${context})`,
+  const error = formatTelegramError(detail.error);
+  repeatedEventLogger.record(
+    "telegram_retry",
+    `${method}:${context}`,
+    `${error}:${detail.delayMs}`,
+    {
+      method,
+      context,
+      attempt: detail.attempt,
+      delay_ms: detail.delayMs,
+      error,
+    },
+    "warn",
   );
 }
 
@@ -136,7 +154,17 @@ async function runTelegramSafely(method, run, context, options = {}) {
   } catch (err) {
     const detail = formatTelegramError(err);
     monitor.lastError = `${method}: ${detail}`;
-    console.warn(`Telegram ${method} failed (${context}): ${detail}`);
+    repeatedEventLogger.record(
+      "telegram_operation_failed",
+      `${method}:${context}`,
+      detail,
+      {
+        method,
+        context,
+        error: detail,
+      },
+      "warn",
+    );
     return null;
   }
 }
@@ -566,7 +594,15 @@ async function pollTelegram() {
       } catch (err) {
         hadUpdateError = true;
         monitor.lastError = err.message;
-        console.warn(`Telegram update handling failed: ${err.message}`);
+        repeatedEventLogger.record(
+          "telegram_update_handling_failed",
+          "update",
+          err.message,
+          {
+            error: err,
+          },
+          "warn",
+        );
       }
     }
     if (!hadUpdateError) {
@@ -575,7 +611,16 @@ async function pollTelegram() {
   } catch (err) {
     shouldRetryWithDelay = true;
     monitor.lastError = err.message;
-    console.warn(`Telegram poll failed: ${err.message}`);
+    repeatedEventLogger.record(
+      "telegram_poll_failed",
+      "poll",
+      err.message,
+      {
+        error: err,
+        retry_ms: telegramPollRetryMs,
+      },
+      "warn",
+    );
   } finally {
     scheduleTelegramPoll(shouldRetryWithDelay ? telegramPollRetryMs : 0);
   }
@@ -583,13 +628,14 @@ async function pollTelegram() {
 
 async function init() {
   if (!telegramEnabled) {
-    console.log("Telegram bot disabled");
+    logger.info("telegram_bot_disabled");
     return;
   }
 
-  console.log(
-    `Telegram bot enabled for ${telegramAllowedUserIds.length} user(s); poller=${POLLER_INTERNAL_URL}`,
-  );
+  logger.info("telegram_bot_enabled", {
+    allowed_user_count: telegramAllowedUserIds.length,
+    poller_internal_url: POLLER_INTERNAL_URL,
+  });
   await syncTelegramCommandsSafely();
   scheduleTelegramPoll();
 }

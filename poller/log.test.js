@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createLogger, createSuppressionReporter } from "./log.js";
+import { createLogger, createRepeatedEventLogger, createSuppressionReporter } from "./log.js";
 
 describe("createLogger", () => {
   it("serializes structured entries with nested error causes", () => {
@@ -81,5 +81,48 @@ describe("createSuppressionReporter", () => {
     assert.equal(entries[0].window_ms, 60_000);
     assert.equal(entries[0].source, "oref_history");
     assert.equal(entries[0].alert_key, "alert-1");
+  });
+});
+
+describe("createRepeatedEventLogger", () => {
+  it("logs the first value change and summarizes repeats", () => {
+    const entries = [];
+    const logger = createLogger("poller", {
+      level: "info",
+      now: () => "2026-03-18T16:00:00.000Z",
+      write: (_level, entry) => {
+        entries.push(entry);
+      },
+    });
+    let currentNow = 0;
+    const repeatedEventLogger = createRepeatedEventLogger(logger, {
+      intervalMs: 60_000,
+      now: () => currentNow,
+    });
+
+    repeatedEventLogger.record("oref_mqtt_stream_event", "info", "Connected to oref mqtt broker", {
+      source: "oref_mqtt",
+      severity: "info",
+      message: "Connected to oref mqtt broker",
+    });
+    currentNow = 30_000;
+    repeatedEventLogger.record("oref_mqtt_stream_event", "info", "Connected to oref mqtt broker", {
+      source: "oref_mqtt",
+      severity: "info",
+      message: "Connected to oref mqtt broker",
+    });
+    currentNow = 90_000;
+    repeatedEventLogger.record("oref_mqtt_stream_event", "info", "Connected to oref mqtt broker", {
+      source: "oref_mqtt",
+      severity: "info",
+      message: "Connected to oref mqtt broker",
+    });
+
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].msg, "oref_mqtt_stream_event");
+    assert.equal(entries[0].message, "Connected to oref mqtt broker");
+    assert.equal(entries[1].msg, "suppressed_events_summary");
+    assert.equal(entries[1].suppression_kind, "oref_mqtt_stream_event");
+    assert.equal(entries[1].count, 2);
   });
 });

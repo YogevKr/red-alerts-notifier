@@ -152,3 +152,38 @@ export function createSuppressionReporter(
     },
   };
 }
+
+export function createRepeatedEventLogger(
+  logger,
+  {
+    intervalMs = 60_000,
+    shouldLogFirst = true,
+    now = () => Date.now(),
+  } = {},
+) {
+  const reporter = createSuppressionReporter(logger, { intervalMs });
+  const lastValues = new Map();
+
+  return {
+    record(kind, key, valueKey, fields = {}, level = "info") {
+      const bucketKey = `${kind}:${key}`;
+      const previousValue = lastValues.get(bucketKey);
+      const changed = previousValue !== valueKey;
+      lastValues.set(bucketKey, valueKey);
+
+      if (changed) {
+        if (shouldLogFirst || previousValue !== undefined) {
+          logger[level]?.(kind, fields);
+        }
+        return true;
+      }
+
+      reporter.record(kind, key, fields, now());
+      reporter.flushDue(now());
+      return false;
+    },
+    flushAll() {
+      reporter.flushAll();
+    },
+  };
+}

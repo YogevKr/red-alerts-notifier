@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DebugCaptureStore } from "./debug-capture.js";
+import { createRepeatedEventLogger } from "./log.js";
 import {
   buildSourceGroups,
   createPolledSourceConfigs,
@@ -122,9 +123,38 @@ function captureRealtimeEntries(
 }
 
 function createRealtimeStreamLogger(source, logger = console) {
+  const repeatedEventLogger = createRepeatedEventLogger(logger, {
+    intervalMs: 60_000,
+  });
+
   return {
-    log: (message) => logger.info(`${source}_stream_event`, { message }),
-    error: (message) => logger.warn(`${source}_stream_event`, { message }),
+    log: (message) => {
+      const normalizedMessage = String(message || "").trim() || "unknown";
+      repeatedEventLogger.record(
+        `${source}_stream_event`,
+        "info",
+        normalizedMessage,
+        {
+          source,
+          severity: "info",
+          message: normalizedMessage,
+        },
+      );
+    },
+    error: (message) => {
+      const normalizedMessage = String(message || "").trim() || "unknown";
+      repeatedEventLogger.record(
+        `${source}_stream_event`,
+        "warn",
+        normalizedMessage,
+        {
+          source,
+          severity: "warn",
+          message: normalizedMessage,
+        },
+        "warn",
+      );
+    },
   };
 }
 
