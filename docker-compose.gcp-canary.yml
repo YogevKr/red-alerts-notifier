@@ -1,5 +1,6 @@
 services:
   canary-poller:
+    container_name: red-alerts-notifier-poller
     build: ./poller
     restart: unless-stopped
     ports:
@@ -60,6 +61,7 @@ services:
       - shared
 
   canary-notifier-worker:
+    container_name: red-alerts-notifier-worker
     build: ./poller
     command: ["node", "notifier-worker.js"]
     restart: unless-stopped
@@ -89,6 +91,7 @@ services:
       - shared
 
   canary-telegram-bot:
+    container_name: red-alerts-notifier-telegram-bot
     build: ./poller
     command: ["node", "telegram-bot.js"]
     restart: unless-stopped
