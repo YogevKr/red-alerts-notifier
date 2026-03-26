@@ -13,7 +13,6 @@ import {
   getInstances,
   hashDeliveryKey,
   normalizeChatTarget,
-  parseChatTargets,
   resolveEventType,
   resolveMessageMediaBaseName,
   shouldFallbackToText,
@@ -30,8 +29,6 @@ import { appendRecentSentEntry, loadRecentSentEntries } from "./ops-timeline-sto
 
 const DEFAULT_EVOLUTION_URL = "http://evolution-api:8080";
 const DEFAULT_EVOLUTION_TIMEOUT_MS = 10_000;
-const DEFAULT_WAHA_URL = "http://waha:3000";
-const DEFAULT_WAHA_TIMEOUT_MS = 15_000;
 const DEFAULT_TELEGRAM_TIMEOUT_MS = 15_000;
 const MAX_RECENT_SENT = 100;
 const logger = createLogger("notifier-service");
@@ -78,11 +75,6 @@ function loadWhatsAppNotifierState(filePath = notifierStatePath) {
       whatsappLastCheckedAt: null,
       whatsappLastError: null,
       whatsappDisconnectedSince: null,
-      whatsappWahaSession: null,
-      whatsappWahaState: null,
-      whatsappWahaLastCheckedAt: null,
-      whatsappWahaLastError: null,
-      whatsappWahaRoutedTargets: [],
       lastDeliveredAt: null,
       lastDeliveredEventType: null,
       lastDeliveredSource: null,
@@ -101,13 +93,6 @@ function loadWhatsAppNotifierState(filePath = notifierStatePath) {
     whatsappLastCheckedAt: parsed?.whatsappLastCheckedAt || null,
     whatsappLastError: parsed?.whatsappLastError || null,
     whatsappDisconnectedSince: parsed?.whatsappDisconnectedSince || null,
-    whatsappWahaSession: parsed?.whatsappWahaSession || null,
-    whatsappWahaState: parsed?.whatsappWahaState || null,
-    whatsappWahaLastCheckedAt: parsed?.whatsappWahaLastCheckedAt || null,
-    whatsappWahaLastError: parsed?.whatsappWahaLastError || null,
-    whatsappWahaRoutedTargets: Array.isArray(parsed?.whatsappWahaRoutedTargets)
-      ? parsed.whatsappWahaRoutedTargets.filter(Boolean)
-      : [],
     lastDeliveredAt: parsed?.lastDeliveredAt || null,
     lastDeliveredEventType: parsed?.lastDeliveredEventType || null,
     lastDeliveredSource: parsed?.lastDeliveredSource || null,
@@ -208,33 +193,6 @@ function getJobPayload(job = {}) {
 }
 export { parseNotifierTarget };
 
-function buildWahaHeaders(apiKey = "") {
-  return {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    "X-Api-Key": String(apiKey || "").trim(),
-  };
-}
-
-function getWahaSessionStatus(payload = {}) {
-  return String(payload?.status || "").trim().toUpperCase() || null;
-}
-
-function normalizeWahaChatId(chatId = "") {
-  const normalized = normalizeChatTarget(chatId);
-  if (!normalized) return "";
-  if (normalized.includes("@")) return normalized;
-  return `${normalized}@c.us`;
-}
-
-function extractWahaMessageId(payload = {}) {
-  return payload?.id
-    || payload?.message?.id
-    || payload?.key?.id
-    || payload?.data?.id
-    || null;
-}
-
 function resolveJobContext(job = {}) {
   const payload = getJobPayload(job);
   const alert = payload.alert && typeof payload.alert === "object" ? payload.alert : null;
@@ -269,14 +227,6 @@ export class WhatsAppNotifier {
     evolutionInstance = process.env.EVOLUTION_INSTANCE || "default",
     evolutionFallbackInstance = process.env.EVOLUTION_FALLBACK_INSTANCE || "",
     evolutionTimeoutMs = DEFAULT_EVOLUTION_TIMEOUT_MS,
-    wahaUrl = process.env.WAHA_URL || DEFAULT_WAHA_URL,
-    wahaApiKey = process.env.WAHA_API_KEY || "",
-    wahaSession = process.env.WAHA_SESSION || "default",
-    wahaTimeoutMs = DEFAULT_WAHA_TIMEOUT_MS,
-    wahaTargets = parseChatTargets(process.env.WAHA_TARGETS || ""),
-    wahaMirrorTargets = parseChatTargets(process.env.WAHA_MIRROR_TARGETS || ""),
-    wahaDeviceName = process.env.WAHA_DEVICE_NAME || "WAHA",
-    wahaBrowserName = process.env.WAHA_BROWSER_NAME || "Red Alerts",
     stateFilePath = notifierStatePath,
     recentSentFilePath = recentSentStorePath,
     dedupeFilePath = notifierDeliveryStorePath,
@@ -286,14 +236,6 @@ export class WhatsAppNotifier {
     this.evolutionInstance = evolutionInstance;
     this.evolutionFallbackInstance = String(evolutionFallbackInstance || "").trim();
     this.evolutionTimeoutMs = evolutionTimeoutMs;
-    this.wahaUrl = String(wahaUrl || "").trim();
-    this.wahaApiKey = String(wahaApiKey || "").trim();
-    this.wahaSession = String(wahaSession || "").trim() || "default";
-    this.wahaTimeoutMs = wahaTimeoutMs;
-    this.wahaTargetSet = new Set(parseChatTargets(wahaTargets).map((target) => normalizeChatTarget(target)));
-    this.wahaMirrorTargetSet = new Set(parseChatTargets(wahaMirrorTargets).map((target) => normalizeChatTarget(target)));
-    this.wahaDeviceName = String(wahaDeviceName || "").trim() || "WAHA";
-    this.wahaBrowserName = String(wahaBrowserName || "").trim() || "Red Alerts";
     this.stateFilePath = stateFilePath;
     this.recentSentFilePath = recentSentFilePath;
     this.state = loadWhatsAppNotifierState(stateFilePath);
@@ -304,14 +246,6 @@ export class WhatsAppNotifier {
       label: "notifier delivery store",
     });
     this.eventMedia = loadEventMedia();
-  }
-
-  get wahaEnabled() {
-    return this.wahaTargetSet.size > 0 || this.wahaMirrorTargetSet.size > 0;
-  }
-
-  get trackedWahaTargets() {
-    return [...new Set([...this.wahaTargetSet, ...this.wahaMirrorTargetSet])];
   }
 
   status() {
@@ -341,42 +275,12 @@ export class WhatsAppNotifier {
       });
       throw err;
     }
-
-    if (this.wahaEnabled) {
-      try {
-        await this.ensureWahaSession();
-      } catch (err) {
-        this.updateState({
-          whatsappWahaSession: this.wahaSession,
-          whatsappWahaLastCheckedAt: toIsoString(),
-          whatsappWahaLastError: err.message,
-          whatsappWahaRoutedTargets: this.trackedWahaTargets,
-        });
-        logger.warn("waha_notifier_not_ready", {
-          session_name: this.wahaSession,
-          routed_targets: this.trackedWahaTargets,
-          error: err,
-        });
-      }
-    }
   }
 
   async refreshStatus() {
-    let wahaPatch = {
-      whatsappWahaSession: this.wahaEnabled ? this.wahaSession : null,
-      whatsappWahaState: this.wahaEnabled ? this.state.whatsappWahaState : null,
-      whatsappWahaLastCheckedAt: this.wahaEnabled ? this.state.whatsappWahaLastCheckedAt : null,
-      whatsappWahaLastError: this.wahaEnabled ? this.state.whatsappWahaLastError : null,
-      whatsappWahaRoutedTargets: this.wahaEnabled ? this.trackedWahaTargets : [],
-    };
-    if (this.wahaEnabled) {
-      wahaPatch = await this.refreshWahaStatus();
-    }
-
     try {
       const active = await this.resolveActiveEvolutionInstance();
       this.updateState({
-        ...wahaPatch,
         whatsappLastCheckedAt: toIsoString(),
         whatsappLastError: null,
         whatsappDisconnectedSince: null,
@@ -391,7 +295,6 @@ export class WhatsAppNotifier {
     } catch (err) {
       const disconnectedSince = this.state.whatsappDisconnectedSince || toIsoString();
       this.updateState({
-        ...wahaPatch,
         whatsappLastCheckedAt: toIsoString(),
         whatsappLastError: err.message,
         whatsappDisconnectedSince: disconnectedSince,
@@ -431,209 +334,16 @@ export class WhatsAppNotifier {
 
     this.dedupeGate.markInFlight(deliveryKey);
     try {
-      if (this.shouldRouteTargetToWaha(target.normalized || target.chatId)) {
-        return await this.sendViaWaha({
-          alert,
-          matched,
-          target,
-          eventType,
-          source,
-          deliveryKey,
-          caption,
-        });
-      }
-
-      const evolutionResult = await this.sendViaEvolution({
-        alert,
-        matched,
-        target,
-        eventType,
-        source,
-        deliveryKey,
-        caption,
-      });
-      if (this.shouldMirrorTargetToWaha(target.normalized || target.chatId)) {
-        await this.sendWahaMirror({
-          alert,
-          matched,
-          target,
-          eventType,
-          source,
-          deliveryKey,
-          caption,
-        });
-      }
-
-      return {
-        ...evolutionResult,
-        mirroredProviders: this.shouldMirrorTargetToWaha(target.normalized || target.chatId)
-          ? ["waha"]
-          : [],
-      };
-    } finally {
-      this.dedupeGate.clearInFlight(deliveryKey);
-    }
-  }
-
-  shouldRouteTargetToWaha(chatId = "") {
-    const normalized = normalizeChatTarget(chatId);
-    return normalized ? this.wahaTargetSet.has(normalized) : false;
-  }
-
-  shouldMirrorTargetToWaha(chatId = "") {
-    const normalized = normalizeChatTarget(chatId);
-    return normalized ? this.wahaMirrorTargetSet.has(normalized) : false;
-  }
-
-  appendRecentSentEntry(entry = {}) {
-    appendRecentSentEntry(entry, {
-      filePath: this.recentSentFilePath,
-      maxEntries: MAX_RECENT_SENT,
-      logger,
-    });
-  }
-
-  async sendViaEvolution({
-    alert,
-    matched,
-    target,
-    eventType,
-    source,
-    deliveryKey,
-    caption,
-  }) {
-    const active = await this.resolveActiveEvolutionInstance();
-    const result = await this.sendImageMessage({
-      alert,
-      caption,
-      chatId: target.chatId,
-      eventType,
-      instanceName: active.instanceName,
-    });
-    this.dedupeGate.remember(deliveryKey);
-    this.appendRecentSentEntry({
-      deliveredAt: toIsoString(),
-      eventType,
-      source,
-      title: alert.title || "",
-      chatId: target.normalized,
-      matchedLocations: matched,
-      semanticKey: buildSemanticAlertKey(alert, matched, { eventType }),
-      deliveryKey,
-      alertDate: alert.alertDate || null,
-      receivedAt: alert.receivedAt || null,
-      deliveryMode: result.mode,
-      transport: "whatsapp",
-      instanceName: active.instanceName,
-      usedFallback: Boolean(active.usedFallback),
-      provider: "evolution",
-    });
-    this.updateState({
-      whatsappLastCheckedAt: toIsoString(),
-      whatsappLastError: null,
-      whatsappDisconnectedSince: null,
-      whatsappConnectionState: active.connectionState,
-      whatsappPrimaryInstance: active.primary.instanceName,
-      whatsappPrimaryState: active.primary.connectionState,
-      whatsappFallbackInstance: active.fallback.instanceName,
-      whatsappFallbackState: active.fallback.connectionState,
-      whatsappActiveInstance: active.instanceName,
-      lastDeliveredAt: toIsoString(),
-      lastDeliveredEventType: eventType,
-      lastDeliveredSource: source,
-      lastDeliveredTransport: "whatsapp",
-    });
-    return {
-      ...result,
-      skipped: false,
-      key: deliveryKey,
-      eventType,
-      chatId: target.normalized,
-      transport: "whatsapp",
-      instanceName: active.instanceName,
-      usedFallback: Boolean(active.usedFallback),
-      provider: "evolution",
-    };
-  }
-
-  async sendViaWaha({
-    alert,
-    matched,
-    target,
-    eventType,
-    source,
-    deliveryKey,
-    caption,
-  }) {
-    const session = await this.resolveWahaSession();
-    const result = await this.sendWahaImageMessage({
-      alert,
-      caption,
-      chatId: target.chatId,
-      eventType,
-      sessionName: session.name,
-    });
-    this.dedupeGate.remember(deliveryKey);
-    this.appendRecentSentEntry({
-      deliveredAt: toIsoString(),
-      eventType,
-      source,
-      title: alert.title || "",
-      chatId: target.normalized,
-      matchedLocations: matched,
-      semanticKey: buildSemanticAlertKey(alert, matched, { eventType }),
-      deliveryKey,
-      alertDate: alert.alertDate || null,
-      receivedAt: alert.receivedAt || null,
-      deliveryMode: result.mode,
-      transport: "whatsapp",
-      instanceName: session.name,
-      usedFallback: false,
-      provider: "waha",
-    });
-    this.updateState({
-      whatsappWahaSession: session.name,
-      whatsappWahaState: session.status,
-      whatsappWahaLastCheckedAt: toIsoString(),
-      whatsappWahaLastError: null,
-      whatsappWahaRoutedTargets: [...this.wahaTargetSet],
-      lastDeliveredAt: toIsoString(),
-      lastDeliveredEventType: eventType,
-      lastDeliveredSource: source,
-      lastDeliveredTransport: "whatsapp",
-    });
-    return {
-      ...result,
-      skipped: false,
-      key: deliveryKey,
-      eventType,
-      chatId: target.normalized,
-      transport: "whatsapp",
-      instanceName: session.name,
-      usedFallback: false,
-      provider: "waha",
-    };
-  }
-
-  async sendWahaMirror({
-    alert,
-    matched,
-    target,
-    eventType,
-    source,
-    deliveryKey,
-    caption,
-  }) {
-    try {
-      const session = await this.resolveWahaSession();
-      const result = await this.sendWahaImageMessage({
+      const active = await this.resolveActiveEvolutionInstance();
+      const result = await this.sendImageMessage({
         alert,
         caption,
         chatId: target.chatId,
         eventType,
-        sessionName: session.name,
+        instanceName: active.instanceName,
       });
-      this.appendRecentSentEntry({
+      this.dedupeGate.remember(deliveryKey);
+      appendRecentSentEntry({
         deliveredAt: toIsoString(),
         eventType,
         source,
@@ -646,33 +356,40 @@ export class WhatsAppNotifier {
         receivedAt: alert.receivedAt || null,
         deliveryMode: result.mode,
         transport: "whatsapp",
-        providerMessageId: result.providerMessageId || null,
-        instanceName: session.name,
-        usedFallback: false,
-        provider: "waha",
+        instanceName: active.instanceName,
+        usedFallback: Boolean(active.usedFallback),
+      }, {
+        filePath: this.recentSentFilePath,
+        maxEntries: MAX_RECENT_SENT,
+        logger,
       });
       this.updateState({
-        whatsappWahaSession: session.name,
-        whatsappWahaState: session.status,
-        whatsappWahaLastCheckedAt: toIsoString(),
-        whatsappWahaLastError: null,
-        whatsappWahaRoutedTargets: this.trackedWahaTargets,
+        whatsappLastCheckedAt: toIsoString(),
+        whatsappLastError: null,
+        whatsappDisconnectedSince: null,
+        whatsappConnectionState: active.connectionState,
+        whatsappPrimaryInstance: active.primary.instanceName,
+        whatsappPrimaryState: active.primary.connectionState,
+        whatsappFallbackInstance: active.fallback.instanceName,
+        whatsappFallbackState: active.fallback.connectionState,
+        whatsappActiveInstance: active.instanceName,
+        lastDeliveredAt: toIsoString(),
+        lastDeliveredEventType: eventType,
+        lastDeliveredSource: source,
+        lastDeliveredTransport: "whatsapp",
       });
-      return result;
-    } catch (err) {
-      this.updateState({
-        whatsappWahaSession: this.wahaSession,
-        whatsappWahaLastCheckedAt: toIsoString(),
-        whatsappWahaLastError: err.message,
-        whatsappWahaRoutedTargets: this.trackedWahaTargets,
-      });
-      logger.warn("waha_mirror_delivery_failed", {
-        ...buildTargetLogFields(target.normalized || target.chatId),
-        event_type: eventType,
-        session_name: this.wahaSession,
-        error: err,
-      });
-      return null;
+      return {
+        ...result,
+        skipped: false,
+        key: deliveryKey,
+        eventType,
+        chatId: target.normalized,
+        transport: "whatsapp",
+        instanceName: active.instanceName,
+        usedFallback: Boolean(active.usedFallback),
+      };
+    } finally {
+      this.dedupeGate.clearInFlight(deliveryKey);
     }
   }
 
@@ -768,101 +485,6 @@ export class WhatsAppNotifier {
     );
   }
 
-  async fetchWaha(path, options = {}) {
-    return fetch(`${this.wahaUrl}${path}`, {
-      ...options,
-      headers: {
-        ...buildWahaHeaders(this.wahaApiKey),
-        ...(options.headers || {}),
-      },
-      signal: AbortSignal.timeout(this.wahaTimeoutMs),
-    });
-  }
-
-  requireWahaConfig() {
-    if (!this.wahaUrl || !this.wahaApiKey || !this.wahaSession) {
-      throw new Error("WAHA_URL, WAHA_API_KEY, and WAHA_SESSION are required for WAHA-routed targets");
-    }
-  }
-
-  async fetchWahaSession(sessionName = this.wahaSession) {
-    this.requireWahaConfig();
-    const res = await this.fetchWaha(`/api/sessions/${encodeURIComponent(sessionName)}`);
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      throw new Error(`waha session ${sessionName} responded ${res.status}: ${await res.text()}`);
-    }
-    return res.json();
-  }
-
-  async ensureWahaSession(sessionName = this.wahaSession) {
-    this.requireWahaConfig();
-    const existing = await this.fetchWahaSession(sessionName);
-    if (existing) return existing;
-
-    const res = await this.fetchWaha("/api/sessions", {
-      method: "POST",
-      body: JSON.stringify({
-        name: sessionName,
-        config: {
-          client: {
-            deviceName: this.wahaDeviceName,
-            browserName: this.wahaBrowserName,
-          },
-          ignore: {
-            groups: false,
-            channels: true,
-          },
-        },
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`waha create session responded ${res.status}: ${await res.text()}`);
-    }
-    return res.json();
-  }
-
-  async refreshWahaStatus() {
-    const basePatch = {
-      whatsappWahaSession: this.wahaSession,
-      whatsappWahaRoutedTargets: this.trackedWahaTargets,
-    };
-    try {
-      await this.ensureWahaSession();
-      const session = await this.fetchWahaSession(this.wahaSession);
-      return {
-        ...basePatch,
-        whatsappWahaState: getWahaSessionStatus(session),
-        whatsappWahaLastCheckedAt: toIsoString(),
-        whatsappWahaLastError: null,
-      };
-    } catch (err) {
-      logger.warn("waha_status_refresh_failed", {
-        session_name: this.wahaSession,
-        error: err,
-      });
-      return {
-        ...basePatch,
-        whatsappWahaState: this.state.whatsappWahaState,
-        whatsappWahaLastCheckedAt: toIsoString(),
-        whatsappWahaLastError: err.message,
-      };
-    }
-  }
-
-  async resolveWahaSession() {
-    await this.ensureWahaSession();
-    const session = await this.fetchWahaSession(this.wahaSession);
-    const status = getWahaSessionStatus(session);
-    if (status === "WORKING") {
-      return {
-        name: this.wahaSession,
-        status,
-      };
-    }
-    throw new Error(`waha sender unavailable: session=${this.wahaSession} status=${status || "missing"}`);
-  }
-
   async sendTextMessage({ caption, chatId, instanceName }) {
     const res = await this.fetchEvolution(`/message/sendText/${instanceName}`, {
       method: "POST",
@@ -911,67 +533,6 @@ export class WhatsAppNotifier {
     }
 
     throw new Error(`evolution responded ${res.status}: ${body}`);
-  }
-
-  async sendWahaTextMessage({ caption, chatId, sessionName }) {
-    const res = await this.fetchWaha("/api/sendText", {
-      method: "POST",
-      body: JSON.stringify({
-        session: sessionName,
-        chatId: normalizeWahaChatId(chatId),
-        text: caption,
-        linkPreview: false,
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(`waha responded ${res.status}: ${JSON.stringify(body)}`);
-    }
-    return {
-      mode: "text",
-      providerMessageId: extractWahaMessageId(body),
-    };
-  }
-
-  async sendWahaImageMessage({ alert, caption, chatId, eventType, sessionName }) {
-    const baseName = resolveMessageMediaBaseName(alert, eventType);
-    const file = this.eventMedia[baseName];
-    const res = await this.fetchWaha("/api/sendImage", {
-      method: "POST",
-      body: JSON.stringify({
-        session: sessionName,
-        chatId: normalizeWahaChatId(chatId),
-        file: {
-          mimetype: file.mimetype,
-          filename: file.filename,
-          data: file.data,
-        },
-        caption,
-      }),
-    });
-    const body = await res.json().catch(async () => ({ raw: await res.text().catch(() => "") }));
-    if (res.ok) {
-      return {
-        mode: "image",
-        providerMessageId: extractWahaMessageId(body),
-      };
-    }
-
-    const serializedBody = JSON.stringify(body);
-    if (shouldFallbackToText(res.status, serializedBody)) {
-      logger.warn("whatsapp_media_fallback", {
-        ...buildTargetLogFields(chatId),
-        event_type: eventType,
-        instance_name: sessionName,
-        fallback_to: "text",
-        response_status: res.status,
-        response_body: serializedBody,
-        provider: "waha",
-      });
-      return this.sendWahaTextMessage({ caption, chatId, sessionName });
-    }
-
-    throw new Error(`waha responded ${res.status}: ${serializedBody}`);
   }
 }
 
