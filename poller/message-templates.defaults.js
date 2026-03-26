@@ -27,7 +27,6 @@ export const DEFAULT_MESSAGE_TEMPLATES = {
     },
   },
   whatsapp: {
-    versionTag: "",
     preAlert: {
       mediaBaseName: "pre-alert",
       upcomingAlertsTemplate:

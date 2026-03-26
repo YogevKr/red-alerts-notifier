@@ -15,25 +15,25 @@ import {
   detectEventType,
   isDeliverableEventType,
   isExplicitlySupportedAlert,
-    parseEventDate,
-    formatEventTimestamp,
-    hashDeliveryKey,
-    shouldSuppressDuplicateDelivery,
-    getConnectionState,
-    chooseEvolutionInstance,
-    getConfiguredMediaBaseNames,
-    getMediaAssetMimeType,
-    normalizeChatTarget,
-    alertKey,
-    buildDeliveryKey,
-    matchLocations,
-    formatMessage,
-    parseAlertBody,
-    parseJsonObject,
-    resolveMessageMediaBaseName,
-    resolveMediaAssetFilename,
+  parseEventDate,
+  formatEventTimestamp,
+  formatStatusTimestamp,
+  hashDeliveryKey,
+  shouldSuppressDuplicateDelivery,
+  getConnectionState,
+  chooseEvolutionInstance,
+  getConfiguredMediaBaseNames,
+  getMediaAssetMimeType,
+  normalizeChatTarget,
+  alertKey,
+  buildDeliveryKey,
+  matchLocations,
+  formatMessage,
+  parseAlertBody,
+  parseJsonObject,
+  resolveMessageMediaBaseName,
+  resolveMediaAssetFilename,
 } from "./lib.js";
-import { MESSAGE_TEMPLATES } from "./message-templates.js";
 
 describe("parseLocations", () => {
   it("splits comma-separated locations", () => {
@@ -935,26 +935,6 @@ describe("formatMessage", () => {
     );
   });
 
-  it("formats the optional version tag when configured", () => {
-    const previous = MESSAGE_TEMPLATES.whatsapp.versionTag;
-    MESSAGE_TEMPLATES.whatsapp.versionTag = "Ver 2.0";
-
-    try {
-      const alert = { title: "ירי רקטות וטילים", cat: "1" };
-      const msg = formatMessage(alert, ["תל אביב - יפו"], {
-        eventType: EVENT_TYPES.ACTIVE_ALERT,
-        timestamp: "2026-03-10T14:46:00+02:00",
-      });
-
-      assert.equal(
-        msg,
-        "שלישי | 10.3.2026 | שעה 14:46\n\n*Ver 2.0*\n\n*הודעת עדכון מצח\"י תל אביב - יפו:*\n\n*ירי טילים ורקטות באזורך.*\n\n*יש להכנס למרחב המוגן ולשהות בו עד לקבלת הודעת שחרור.*",
-      );
-    } finally {
-      MESSAGE_TEMPLATES.whatsapp.versionTag = previous;
-    }
-  });
-
   it("formats stay-nearby update message", () => {
     const alert = { title: "ניתן לצאת מהמרחב המוגן אך יש להישאר בקרבתו", cat: "10" };
     const msg = formatMessage(alert, ["תל אביב - יפו"], {
@@ -1048,6 +1028,22 @@ describe("formatEventTimestamp", () => {
     assert.equal(
       formatEventTimestamp("2026-03-10 14:41:00"),
       "שלישי | 10.3.2026 | שעה 14:41",
+    );
+  });
+});
+
+describe("formatStatusTimestamp", () => {
+  it("formats valid timestamps in Jerusalem timezone", () => {
+    assert.equal(
+      formatStatusTimestamp("2026-03-10T12:41:00Z"),
+      "2026-03-10 14:41:00",
+    );
+  });
+
+  it("keeps invalid timestamps visible instead of formatting now", () => {
+    assert.equal(
+      formatStatusTimestamp("not-a-real-timestamp"),
+      "not-a-real-timestamp",
     );
   });
 });

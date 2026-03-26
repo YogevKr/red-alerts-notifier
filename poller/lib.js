@@ -277,8 +277,17 @@ export function isExplicitlySupportedAlert(alert = {}, eventType = detectEventTy
 }
 
 export function parseEventDate(dateLike) {
-  if (!dateLike) return new Date();
-  if (dateLike instanceof Date) return new Date(dateLike);
+  const parsed = tryParseEventDate(dateLike);
+  if (!parsed) return new Date();
+  return parsed;
+}
+
+function tryParseEventDate(dateLike) {
+  if (!dateLike) return null;
+  if (dateLike instanceof Date) {
+    const parsed = new Date(dateLike);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
 
   if (typeof dateLike === "string") {
     const jerusalemDate = parseJerusalemLocalDate(dateLike);
@@ -291,8 +300,7 @@ export function parseEventDate(dateLike) {
       : dateLike;
 
   const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) return new Date();
-  return parsed;
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function parseJerusalemLocalDate(dateLike) {
@@ -370,10 +378,8 @@ export function formatStatusTimestamp(dateLike) {
   const raw = String(dateLike || "").trim();
   if (!raw) return "unknown";
 
-  const date = parseEventDate(raw);
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return raw;
-  }
+  const date = tryParseEventDate(raw);
+  if (!date) return raw;
 
   return JERUSALEM_STATUS_FORMATTER.format(date);
 }
@@ -436,17 +442,15 @@ export function formatMessage(alert, matched = [], options = {}) {
     throw new Error(`Unknown event type: ${eventType}`);
   }
   const timestamp = formatEventTimestamp(options.timestamp || alert.alertDate);
-  const versionTag = String(WHATSAPP.versionTag || "").trim();
   const locationLabel = [...matched]
     .map((location) => location.trim())
     .filter(Boolean)
     .join(", ");
-  const versionLine = versionTag ? `\n\n*${versionTag}*` : "";
   const updateLine = locationLabel
     ? `\n\n*הודעת עדכון מצח"י ${locationLabel}:*`
     : `\n\n*הודעת עדכון מצח"י:*`;
 
-  return `${timestamp}${versionLine}${updateLine}\n\n${formatBoldBody(resolveMessageBody(alert, { eventType }))}`;
+  return `${timestamp}${updateLine}\n\n${formatBoldBody(resolveMessageBody(alert, { eventType }))}`;
 }
 
 export function resolveMessageMediaBaseName(alert = {}, eventType = detectEventType(alert)) {
