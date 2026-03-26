@@ -291,7 +291,7 @@ export function createHealthSnapshotBuilders({
     pruneDeliveredKeys();
     await checkDatabaseHealth();
     const notifierState = getNotifierStateSnapshot();
-    const outboxStats = await getOutboxStatsSnapshot();
+    const outboxStats = await getOutboxStatsSnapshot(Date.now(), { includeLatency: false });
 
     return {
       ok: true,

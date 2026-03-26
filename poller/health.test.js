@@ -4,6 +4,7 @@ import { createHealthHelpers } from "./health.js";
 
 describe("createHealthHelpers", () => {
   it("includes realtime sources in /health", async () => {
+    const outboxOptions = [];
     const helpers = createHealthHelpers({
       loadNotifierState: () => ({}),
       runtimeState: { deliveryEnabled: true },
@@ -74,12 +75,17 @@ describe("createHealthHelpers", () => {
         entries: [],
       }),
       checkDatabaseHealth: async () => {},
-      getOutboxStatsSnapshot: async () => null,
+      getOutboxStatsSnapshot: async (_now, options = {}) => {
+        outboxOptions.push(options);
+        return null;
+      },
       pruneDeliveredKeys() {},
       toIsoString: (ts = Date.now()) => new Date(ts).toISOString(),
     });
 
     const response = await helpers.buildHealthResponse();
+
+    assert.deepEqual(outboxOptions, [{ includeLatency: false }]);
 
     assert.deepEqual(response.sources, {
       tzevaadom: {
