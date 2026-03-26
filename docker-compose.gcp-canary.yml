@@ -110,7 +110,9 @@ services:
 
 volumes:
   poller_canary_state:
+    name: ${POLLER_STATE_VOLUME:-red-alerts-notifier-poller-state}
   telegram_bot_canary_state:
+    name: ${TELEGRAM_BOT_STATE_VOLUME:-red-alerts-notifier-telegram-bot-state}
 
 networks:
   shared:
