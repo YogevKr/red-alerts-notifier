@@ -60,6 +60,7 @@ export function createPollerMonitor({
     lastDeliveredSource: null,
     telegramEnabled: false,
     telegramLastPollAt: null,
+    telegramLastPollSuccessAt: null,
     telegramLastUpdateAt: null,
     telegramLastCommandAt: null,
     telegramLastCommand: null,

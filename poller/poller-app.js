@@ -65,6 +65,11 @@ function formatDisconnectedSinceValue(timestampMs) {
   return Number.isFinite(timestampMs) ? toIsoString(timestampMs) : null;
 }
 
+function normalizeOptionalString(value) {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
+
 export function createPollerApp(config = {}) {
   const {
     locations = [],
@@ -260,6 +265,32 @@ export function createPollerApp(config = {}) {
     pruneDeliveredKeys,
     toIsoString,
   });
+  function setTelegramManagementState(update = {}) {
+    const enabled = typeof update.enabled === "boolean" ? update.enabled : monitor.telegramEnabled;
+    monitor.telegramEnabled = Boolean(enabled);
+    monitor.telegramLastPollAt = normalizeOptionalString(update.lastPollAt) || monitor.telegramLastPollAt || null;
+    monitor.telegramLastPollSuccessAt =
+      normalizeOptionalString(update.lastPollSuccessAt) || monitor.telegramLastPollSuccessAt || null;
+    monitor.telegramLastUpdateAt =
+      normalizeOptionalString(update.lastUpdateAt) || monitor.telegramLastUpdateAt || null;
+    monitor.telegramLastCommandAt =
+      normalizeOptionalString(update.lastCommandAt) || monitor.telegramLastCommandAt || null;
+    monitor.telegramLastCommand =
+      normalizeOptionalString(update.lastCommand) || monitor.telegramLastCommand || null;
+    monitor.telegramLastError =
+      Object.hasOwn(update, "lastError")
+        ? normalizeOptionalString(update.lastError)
+        : monitor.telegramLastError || null;
+    return {
+      enabled: monitor.telegramEnabled,
+      lastPollAt: monitor.telegramLastPollAt,
+      lastPollSuccessAt: monitor.telegramLastPollSuccessAt,
+      lastUpdateAt: monitor.telegramLastUpdateAt,
+      lastCommandAt: monitor.telegramLastCommandAt,
+      lastCommand: monitor.telegramLastCommand,
+      lastError: monitor.telegramLastError,
+    };
+  }
   const scopedBuildAlertLogFields = (alert, matched, options = {}) =>
     buildAlertLogFields(alert, matched, { ...options, buildSeenSourceAlertKey });
   const alertSinks = configuredAlertSinkNames.map((sinkName) => {
@@ -478,6 +509,7 @@ export function createPollerApp(config = {}) {
       setDeliveryEnabled,
       buildOpsDeliveryResponse,
       buildOpsSendPresetResponse,
+      setTelegramManagementState,
       buildHealthResponse,
       buildHealthErrorResponse,
     });

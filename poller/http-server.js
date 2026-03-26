@@ -41,6 +41,7 @@ export function startHttpServer({
   setDeliveryEnabled,
   buildOpsDeliveryResponse,
   buildOpsSendPresetResponse,
+  setTelegramManagementState,
   buildHealthResponse,
   buildHealthErrorResponse,
 } = {}) {
@@ -195,6 +196,21 @@ export function startHttpServer({
           String(payload.updatedBy || "ops-api"),
         );
         writeJson(res, 200, buildOpsDeliveryResponse(enabled));
+      } catch (err) {
+        const statusCode =
+          err instanceof SyntaxError || err instanceof TypeError ? 400 : 500;
+        writeJson(res, statusCode, { ok: false, error: err.message });
+      }
+      return;
+    }
+
+    if (url.pathname === "/ops/telegram_management" && req.method === "POST") {
+      try {
+        const payload = await readJsonBody(req);
+        writeJson(res, 200, {
+          ok: true,
+          monitoring: setTelegramManagementState(payload),
+        });
       } catch (err) {
         const statusCode =
           err instanceof SyntaxError || err instanceof TypeError ? 400 : 500;

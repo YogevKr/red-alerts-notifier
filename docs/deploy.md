@@ -172,3 +172,4 @@ Important env vars (see `.env.example` for full list):
 - Do not run `docker compose down -v` unless you intentionally want to wipe state.
 - If you want delivery enabled after a fresh restart, keep `.env` and runtime aligned with `DELIVERY_ENABLED=true`.
 - PagerDuty stays fully disabled until `PAGERDUTY_ROUTING_KEY` is set.
+- Current PagerDuty coverage includes DB health, poll loop failures, all-source outages, WhatsApp disconnects, notifier staleness, Telegram management bot staleness, outbox backlog/uncertain rows, and prolonged Tzevaadom disconnects.

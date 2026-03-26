@@ -42,6 +42,7 @@ const repeatedEventLogger = createRepeatedEventLogger(logger, {
 const monitor = {
   enabled: telegramEnabled,
   lastPollAt: null,
+  lastPollSuccessAt: null,
   lastUpdateAt: null,
   lastCommandAt: null,
   lastCommand: null,
@@ -314,6 +315,34 @@ async function fetchPoller(path, options = {}) {
   return body;
 }
 
+async function reportTelegramManagementState() {
+  try {
+    await fetchPoller("/ops/telegram_management", {
+      method: "POST",
+      body: JSON.stringify({
+        enabled: monitor.enabled,
+        lastPollAt: monitor.lastPollAt,
+        lastPollSuccessAt: monitor.lastPollSuccessAt,
+        lastUpdateAt: monitor.lastUpdateAt,
+        lastCommandAt: monitor.lastCommandAt,
+        lastCommand: monitor.lastCommand,
+        lastError: monitor.lastError,
+      }),
+    });
+  } catch (err) {
+    repeatedEventLogger.record(
+      "telegram_management_state_report_failed",
+      "poller",
+      formatTelegramError(err),
+      {
+        error: err,
+        poller_internal_url: POLLER_INTERNAL_URL,
+      },
+      "warn",
+    );
+  }
+}
+
 async function handleTelegramCallbackQuery(callbackQuery = {}) {
   const callbackId = callbackQuery?.id;
   const callbackData = String(callbackQuery?.data || "");
@@ -581,6 +610,7 @@ async function pollTelegram() {
       timeout: telegramPollTimeoutSeconds,
       allowed_updates: ["message", "edited_message", "callback_query"],
     });
+    monitor.lastPollSuccessAt = toIsoString();
     let hadUpdateError = false;
 
     for (const update of updates) {
@@ -622,6 +652,7 @@ async function pollTelegram() {
       "warn",
     );
   } finally {
+    void reportTelegramManagementState();
     scheduleTelegramPoll(shouldRetryWithDelay ? telegramPollRetryMs : 0);
   }
 }
@@ -637,6 +668,7 @@ async function init() {
     poller_internal_url: POLLER_INTERNAL_URL,
   });
   await syncTelegramCommandsSafely();
+  void reportTelegramManagementState();
   scheduleTelegramPoll();
 }
 

@@ -91,6 +91,7 @@ function createRuntime(now = Date.parse("2026-03-18T21:02:00.000Z"), overrides =
     dbDisconnectThresholdMs: 30_000,
     outboxBacklogThresholdMs: 60_000,
     notifierStaleThresholdMs: 45_000,
+    telegramBotStaleThresholdMs: 120_000,
     tzevaadomDisconnectThresholdMs: 300_000,
   });
 
@@ -196,6 +197,49 @@ describe("createPagerDutyRuntime", () => {
       {
         kind: "resolve",
         payload: { dedupKey: "tzevaadom-disconnected" },
+      },
+    ]);
+  });
+
+  it("triggers telegram bot stale when it has no recent successful polls", async () => {
+    const startedAt = Date.parse("2026-03-18T21:02:00.000Z");
+    const now = startedAt + 121_000;
+    const { pagerDuty, runtime } = createRuntime(startedAt, {
+      monitor: {
+        telegramEnabled: true,
+        telegramLastPollAt: "2026-03-18T21:03:50.000Z",
+        telegramLastPollSuccessAt: null,
+        telegramLastError: "telegram getUpdates responded 401",
+      },
+    });
+
+    await runtime.syncPagerDutyHealth(now);
+
+    const calls = pagerDuty.calls.filter((call) => call.payload.dedupKey === "telegram-bot-stale");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].kind, "trigger");
+    assert.equal(calls[0].payload.summary, "Telegram management bot health checks are stale");
+    assert.equal(calls[0].payload.severity, "warning");
+  });
+
+  it("resolves telegram bot stale when successful polls are recent", async () => {
+    const now = Date.parse("2026-03-18T21:05:00.000Z");
+    const { pagerDuty, runtime } = createRuntime(now, {
+      monitor: {
+        telegramEnabled: true,
+        telegramLastPollAt: "2026-03-18T21:04:55.000Z",
+        telegramLastPollSuccessAt: "2026-03-18T21:04:50.000Z",
+        telegramLastError: null,
+      },
+    });
+
+    await runtime.syncPagerDutyHealth(now);
+
+    const calls = pagerDuty.calls.filter((call) => call.payload.dedupKey === "telegram-bot-stale");
+    assert.deepEqual(calls, [
+      {
+        kind: "resolve",
+        payload: { dedupKey: "telegram-bot-stale" },
       },
     ]);
   });

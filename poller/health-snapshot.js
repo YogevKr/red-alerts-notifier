@@ -122,8 +122,12 @@ export function createHealthSnapshotBuilders({
     const enabled = isTransportEnabled("telegram");
     return {
       enabled,
-      lastCheckedAt: enabled ? (notifierState.telegramLastCheckedAt || null) : null,
-      lastError: enabled ? (notifierState.telegramLastError || null) : null,
+      lastCheckedAt: enabled
+        ? (monitor.telegramLastPollSuccessAt || notifierState.telegramLastCheckedAt || null)
+        : null,
+      lastError: enabled
+        ? (monitor.telegramLastError || notifierState.telegramLastError || null)
+        : null,
       lastDeliveredChatId: enabled ? (notifierState.telegramLastDeliveredChatId || null) : null,
     };
   }
@@ -279,6 +283,7 @@ export function createHealthSnapshotBuilders({
           : null),
       telegramEnabled: monitor.telegramEnabled,
       telegramLastPollAt: monitor.telegramLastPollAt,
+      telegramLastPollSuccessAt: monitor.telegramLastPollSuccessAt,
       telegramLastUpdateAt: monitor.telegramLastUpdateAt,
       telegramLastCommandAt: monitor.telegramLastCommandAt,
       telegramLastCommand: monitor.telegramLastCommand,

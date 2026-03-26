@@ -25,6 +25,7 @@ export function createPagerDutyRuntime({
   dbDisconnectThresholdMs,
   outboxBacklogThresholdMs,
   notifierStaleThresholdMs,
+  telegramBotStaleThresholdMs,
   tzevaadomDisconnectThresholdMs,
 } = {}) {
   const activeSourceSet = new Set(
@@ -312,6 +313,65 @@ export function createPagerDutyRuntime({
     });
   }
 
+  async function syncPagerDutyTelegramBot(now = Date.now()) {
+    if (!hasNotifierTransport(configuredNotifierTransports, "telegram")) {
+      await pagerDuty.resolveIncident({
+        dedupKey: "telegram-bot-stale",
+      });
+      return;
+    }
+
+    const lastPollSuccessAt = monitor.telegramLastPollSuccessAt || null;
+    const lastPollSuccessMs = Date.parse(lastPollSuccessAt || "");
+    if (
+      Number.isFinite(lastPollSuccessMs)
+      && !hasExceededThreshold(lastPollSuccessMs, telegramBotStaleThresholdMs, now)
+      && !monitor.telegramLastError
+    ) {
+      await pagerDuty.resolveIncident({
+        dedupKey: "telegram-bot-stale",
+      });
+      return;
+    }
+
+    if (
+      !Number.isFinite(lastPollSuccessMs)
+      && !hasExceededThreshold(runtimeStartedAt, telegramBotStaleThresholdMs, now)
+    ) {
+      await pagerDuty.resolveIncident({
+        dedupKey: "telegram-bot-stale",
+      });
+      return;
+    }
+
+    if (
+      Number.isFinite(lastPollSuccessMs)
+      && !hasExceededThreshold(lastPollSuccessMs, telegramBotStaleThresholdMs, now)
+    ) {
+      await pagerDuty.resolveIncident({
+        dedupKey: "telegram-bot-stale",
+      });
+      return;
+    }
+
+    await pagerDuty.triggerIncident({
+      dedupKey: "telegram-bot-stale",
+      summary: "Telegram management bot health checks are stale",
+      severity: "warning",
+      customDetails: {
+        checkedAt: toIsoString(now),
+        thresholdMs: telegramBotStaleThresholdMs,
+        enabled: Boolean(monitor.telegramEnabled),
+        lastPollAt: monitor.telegramLastPollAt || null,
+        lastPollSuccessAt,
+        lastUpdateAt: monitor.telegramLastUpdateAt || null,
+        lastCommandAt: monitor.telegramLastCommandAt || null,
+        lastCommand: monitor.telegramLastCommand || null,
+        lastError: monitor.telegramLastError || null,
+      },
+    });
+  }
+
   async function syncPagerDutyTzevaadom(now = Date.now()) {
     if (!hasActiveSource("tzevaadom")) {
       await pagerDuty.resolveIncident({
@@ -375,6 +435,7 @@ export function createPagerDutyRuntime({
       syncPagerDutyOutboxAvailability(now, outboxError),
       syncPagerDutyOutbox(now, outboxStats),
       syncPagerDutyNotifier(now, notifierState),
+      syncPagerDutyTelegramBot(now),
       syncPagerDutyTzevaadom(now),
     ]);
 
