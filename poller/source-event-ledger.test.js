@@ -21,7 +21,7 @@ describe("ensureSourceEventLedgerSchema", () => {
 
     await ensureSourceEventLedgerSchema(db);
 
-    assert.equal(queries.length, 6);
+    assert.equal(queries.length, 7);
     assert.match(queries[0], new RegExp(`create schema if not exists ${NOTIFICATION_OUTBOX_SCHEMA}`, "i"));
     assert.match(queries[1], new RegExp(`create table if not exists ${SOURCE_EVENT_LEDGER_TABLE.replace(".", "\\.")}`, "i"));
     assert.match(queries[1], /observed_at timestamptz not null/i);
@@ -44,6 +44,7 @@ describe("ensureSourceEventLedgerSchema", () => {
     assert.match(queries[3], /create index if not exists source_events_observed_at_idx/i);
     assert.match(queries[4], /create index if not exists source_events_semantic_key_idx/i);
     assert.match(queries[5], /create index if not exists source_events_source_observed_idx/i);
+    assert.match(queries[6], /create index if not exists source_events_upsert_lookup_idx/i);
   });
 });
 

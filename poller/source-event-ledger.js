@@ -134,6 +134,11 @@ create index if not exists source_events_source_observed_idx
 on ${SOURCE_EVENT_LEDGER_TABLE} (source, observed_at desc, id desc);
 `;
 
+const CREATE_UPSERT_LOOKUP_INDEX_SQL = `
+create index if not exists source_events_upsert_lookup_idx
+on ${SOURCE_EVENT_LEDGER_TABLE} (source, source_key, outcome, observed_at desc, id desc);
+`;
+
 export const LIST_RECENT_SOURCE_EVENTS_SQL = `
 with deduped as (
   select distinct on (source, source_key)
@@ -241,6 +246,7 @@ export async function ensureSourceEventLedgerSchema(db) {
   await db.query(CREATE_OBSERVED_AT_INDEX_SQL);
   await db.query(CREATE_SEMANTIC_KEY_INDEX_SQL);
   await db.query(CREATE_SOURCE_OBSERVED_INDEX_SQL);
+  await db.query(CREATE_UPSERT_LOOKUP_INDEX_SQL);
 }
 
 export class PostgresSourceEventLedger {
