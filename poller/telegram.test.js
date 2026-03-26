@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildTelegramConfirmationMarkup,
   buildTelegramConfirmationPrompt,
+  buildTelegramSimulationMessage,
   formatTelegramError,
   buildTelegramStatusFocus,
   buildTelegramStatusMessage,
@@ -38,7 +39,39 @@ describe("telegram command metadata", () => {
   it("exposes slash commands for menu sync", () => {
     assert.deepEqual(
       TELEGRAM_COMMANDS.map((command) => command.command),
-      ["status", "recent_received", "recent_received_town", "recent_flow", "recent_sent", "send", "mute", "unmute"],
+      ["status", "recent_received", "recent_received_town", "recent_flow", "recent_sent", "simulate", "send", "mute", "unmute"],
+    );
+  });
+});
+
+describe("buildTelegramSimulationMessage", () => {
+  it("renders a compact simulate summary", () => {
+    assert.equal(
+      buildTelegramSimulationMessage({
+        targetMode: "test",
+        received: 1,
+        summary: {
+          matchedAlerts: 1,
+          sentTargets: 1,
+          skippedTargets: 0,
+          duplicateTargets: 0,
+          unmatchedAlerts: 0,
+        },
+        alerts: [
+          {
+            matchedLocations: ["חיפה"],
+            targets: [
+              { chatId: "972500000000" },
+            ],
+          },
+        ],
+      }),
+      [
+        "simulate: ok target_mode=test",
+        "targets: 972500000000",
+        "matched_locations: חיפה",
+        "summary: received=1 matched=1 sent=1 skipped=0 dup=0 unmatched=0",
+      ].join("\n"),
     );
   });
 });

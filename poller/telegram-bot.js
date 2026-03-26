@@ -6,6 +6,7 @@ import {
   buildTelegramStatusMessage,
   buildTelegramConfirmationMarkup,
   buildTelegramConfirmationPrompt,
+  buildTelegramSimulationMessage,
   formatTelegramError,
   isTelegramTransientError,
   normalizeTelegramCommand,
@@ -578,6 +579,24 @@ async function handleTelegramUpdate(update = {}) {
     await sendTelegramMessageSafely(
       chatId,
       result.message || "recent_sent: none",
+      messageId ? { reply_parameters: { message_id: messageId } } : undefined,
+    );
+    return;
+  }
+
+  if (command === "/simulate") {
+    const result = await fetchPoller("/simulate", {
+      method: "POST",
+      body: JSON.stringify({
+        useTestTarget: true,
+        source: "telegram_simulate",
+        title: "SIMULATED ALERT",
+        desc: "Telegram-triggered simulation",
+      }),
+    });
+    await sendTelegramMessageSafely(
+      chatId,
+      buildTelegramSimulationMessage(result),
       messageId ? { reply_parameters: { message_id: messageId } } : undefined,
     );
     return;

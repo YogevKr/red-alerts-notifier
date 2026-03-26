@@ -142,6 +142,7 @@ Pair both configured instances when using a fallback sender.
 ## Telegram ops
 
 - `/status` shows delivery state, active sender, fallback sender, targets, last delivery
+- `/simulate` triggers a safe simulated alert through the poller and uses `TEST_NOTIFICATION_TARGETS` only
 - `/mute` disables WhatsApp delivery without stopping polling/debug capture
 - `/unmute` re-enables WhatsApp delivery
 

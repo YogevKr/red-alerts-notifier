@@ -6,6 +6,7 @@ export const TELEGRAM_COMMANDS = [
   { command: "recent_received_town", description: "Show latest town-matched raw OREF rows" },
   { command: "recent_flow", description: "Show recent cross-source timing flow" },
   { command: "recent_sent", description: "Show latest WhatsApp deliveries" },
+  { command: "simulate", description: "Simulate an alert to test targets only" },
   { command: "send", description: "Send a preset WhatsApp alert" },
   { command: "mute", description: "Mute WhatsApp delivery" },
   { command: "unmute", description: "Unmute WhatsApp delivery" },
@@ -86,6 +87,38 @@ export function buildTelegramConfirmationPrompt(action) {
   }
 
   return "Action cancelled.";
+}
+
+export function buildTelegramSimulationMessage(result = {}) {
+  const alerts = Array.isArray(result.alerts) ? result.alerts : [];
+  const targets = [...new Set(
+    alerts
+      .flatMap((alert) => (Array.isArray(alert?.targets) ? alert.targets : []))
+      .map((target) => String(target?.chatId || "").trim())
+      .filter(Boolean),
+  )];
+  const matchedLocations = [...new Set(
+    alerts
+      .flatMap((alert) => (Array.isArray(alert?.matchedLocations) ? alert.matchedLocations : []))
+      .map((location) => String(location || "").trim())
+      .filter(Boolean),
+  )];
+  const summary = result?.summary || {};
+
+  return [
+    `simulate: ok target_mode=${String(result?.targetMode || "default")}`,
+    targets.length > 0 ? `targets: ${targets.join(", ")}` : null,
+    matchedLocations.length > 0 ? `matched_locations: ${matchedLocations.join(", ")}` : null,
+    [
+      "summary:",
+      `received=${Number(result?.received || alerts.length || 0)}`,
+      `matched=${Number(summary?.matchedAlerts || 0)}`,
+      `sent=${Number(summary?.sentTargets || 0)}`,
+      `skipped=${Number(summary?.skippedTargets || 0)}`,
+      `dup=${Number(summary?.duplicateTargets || 0)}`,
+      `unmatched=${Number(summary?.unmatchedAlerts || 0)}`,
+    ].join(" "),
+  ].filter(Boolean).join("\n");
 }
 
 function escapeTelegramHtml(value = "") {
