@@ -155,7 +155,7 @@ Important env vars (see `.env.example` for full list):
 - `POLLER_DATABASE_URL` — PostgreSQL connection string
 - `WHATSAPP_TARGETS` — comma-separated destination list; supports WhatsApp numbers, WhatsApp groups, and `telegram:<chat_id>`
 - `WHATSAPP_NUMBER` — sender WhatsApp number
-- `TEST_NOTIFICATION_TARGETS` — test-only targets (e.g. `telegram:123456789`)
+- `TEST_NOTIFICATION_TARGETS` — test-only targets (e.g. `telegram:123456789`). When set, `/simulate` uses these targets by default unless explicit targets are provided or `useDefaultTargets=true` is passed.
 - `TELEGRAM_BOT_TOKEN` — Telegram bot token
 - `TELEGRAM_ALLOWED_USER_IDS` — comma-separated allowed Telegram user IDs
 - `ALERT_SINKS` — `notification_outbox`, `log`, or both

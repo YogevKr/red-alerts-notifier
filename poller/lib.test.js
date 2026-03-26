@@ -587,9 +587,23 @@ describe("resolveSimulationTargets", () => {
     );
   });
 
-  it("falls back to default targets", () => {
+  it("prefers configured test targets by default", () => {
     assert.deepEqual(
       resolveSimulationTargets({}, ["one@g.us", "two"], ["test-number"]),
+      { chatIds: ["test-number"], targetMode: "test" },
+    );
+  });
+
+  it("allows opting into default targets explicitly", () => {
+    assert.deepEqual(
+      resolveSimulationTargets({ useDefaultTargets: true }, ["one@g.us", "two"], ["test-number"]),
+      { chatIds: ["one@g.us", "two"], targetMode: "default" },
+    );
+  });
+
+  it("falls back to default targets when no test targets are configured", () => {
+    assert.deepEqual(
+      resolveSimulationTargets({}, ["one@g.us", "two"], []),
       { chatIds: ["one@g.us", "two"], targetMode: "default" },
     );
   });

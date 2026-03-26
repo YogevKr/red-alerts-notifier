@@ -126,10 +126,23 @@ export function resolveSimulationTargets(
     return { chatIds: explicitTargets, targetMode: "explicit" };
   }
 
-  if (isTruthySimulationFlag(payload.useTestTarget ?? payload.testTarget)) {
-    const chatIds = [...new Set(
-      testFallbackChatIds.map((target) => normalizeChatTarget(target)).filter(Boolean),
-    )];
+  const defaultChatIds = [...new Set(
+    fallbackChatIds.map((target) => normalizeChatTarget(target)).filter(Boolean),
+  )];
+  const testChatIds = [...new Set(
+    testFallbackChatIds.map((target) => normalizeChatTarget(target)).filter(Boolean),
+  )];
+  const prefersDefaultTargets = isTruthySimulationFlag(
+    payload.useDefaultTargets ?? payload.useDefaultTarget,
+  );
+  const prefersTestTargets = isTruthySimulationFlag(payload.useTestTarget ?? payload.testTarget);
+
+  if (prefersDefaultTargets) {
+    return { chatIds: defaultChatIds, targetMode: "default" };
+  }
+
+  if (prefersTestTargets || testChatIds.length > 0) {
+    const chatIds = testChatIds;
     if (chatIds.length === 0) {
       throw new Error("TEST_NOTIFICATION_TARGETS or WHATSAPP_NUMBER is required when useTestTarget is true");
     }
@@ -137,7 +150,7 @@ export function resolveSimulationTargets(
   }
 
   return {
-    chatIds: [...new Set(fallbackChatIds.map((target) => normalizeChatTarget(target)).filter(Boolean))],
+    chatIds: defaultChatIds,
     targetMode: "default",
   };
 }

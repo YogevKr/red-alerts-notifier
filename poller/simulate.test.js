@@ -236,6 +236,47 @@ describe("simulateAlerts", () => {
     assert.equal(result.chatId, "972511111111");
   });
 
+  it("uses configured test targets by default when present", async () => {
+    const double = createEnqueueAlertDouble();
+
+    const result = await simulateAlerts(
+      {
+        title: "SIM DEFAULT TEST TARGET",
+        data: ["תל אביב - יפו"],
+      },
+      {
+        locations: ["תל אביב - יפו"],
+        targetChatIds: ["group@g.us"],
+        testChatIds: ["972500000000"],
+        deliverAlert: double.deliverAlert,
+      },
+    );
+
+    assert.equal(result.targetMode, "test");
+    assert.equal(result.chatId, "972500000000");
+  });
+
+  it("allows opting into default targets explicitly", async () => {
+    const double = createEnqueueAlertDouble();
+
+    const result = await simulateAlerts(
+      {
+        useDefaultTargets: true,
+        title: "SIM DEFAULT LIVE TARGET",
+        data: ["תל אביב - יפו"],
+      },
+      {
+        locations: ["תל אביב - יפו"],
+        targetChatIds: ["group@g.us"],
+        testChatIds: ["972500000000"],
+        deliverAlert: double.deliverAlert,
+      },
+    );
+
+    assert.equal(result.targetMode, "default");
+    assert.equal(result.chatId, "group@g.us");
+  });
+
   it("supports telegram targets in test mode", async () => {
     const double = createEnqueueAlertDouble();
 
