@@ -294,4 +294,56 @@ describe("createPollRuntime", () => {
     assert.equal(warnings.length, 1);
     assert.equal(warnings[0].event, "source_event_ledger_prune_failed");
   });
+
+  it("demotes quiet poll_completed logs to debug", async () => {
+    const infoLogs = [];
+    const debugLogs = [];
+    const runtime = createPollRuntime({
+      logger: {
+        info(event, fields) {
+          infoLogs.push({ event, fields });
+        },
+        debug(event, fields) {
+          debugLogs.push({ event, fields });
+        },
+        error() {},
+      },
+      monitor: {
+        sourceFailures: {
+          oref_alerts: {
+            consecutiveFailures: 0,
+            lastSuccessAt: null,
+            lastFailureAt: null,
+            lastError: null,
+          },
+        },
+        consecutivePollErrors: 0,
+        lastPollSuccessAt: null,
+        lastPollError: null,
+      },
+      suppressionReporter: { flushDue() {} },
+      sourceConfigs: [{
+        name: "oref_alerts",
+        url: "https://example.test/alerts",
+        normalizer: () => [],
+        rawExtractor: () => [],
+      }],
+      collectRealtimeSourceResults: async () => ({}),
+      sourceTimeoutMs: 5000,
+      fetchSourceSnapshot: async () => ({ alerts: [], rawRecords: [] }),
+      sortAlertsByDate: (alerts) => alerts,
+      captureEntriesBySource() {},
+      debugCaptureStores: {},
+      seedAlerts: async () => ({ seededDeliveries: 0, seededSourceAlerts: 0 }),
+      ingestAlerts: async () => [],
+      toIsoString: (ts = Date.now()) => new Date(ts).toISOString(),
+      syncPagerDutyHealth: async () => {},
+      summarizeSourceResults: (results) => results,
+    });
+
+    await runtime.poll();
+
+    assert.equal(infoLogs.find((entry) => entry.event === "poll_completed"), undefined);
+    assert.equal(debugLogs.filter((entry) => entry.event === "poll_completed").length, 1);
+  });
 });

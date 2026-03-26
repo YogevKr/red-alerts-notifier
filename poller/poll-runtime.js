@@ -1,6 +1,17 @@
 import { createAlertProcessingSummary } from "./alert-pipeline.js";
 import { applySourceHealthUpdate } from "./monitor-state.js";
 
+function hasPollActivity(pollSummary = {}) {
+  if (Number(pollSummary.matched_alert_count || 0) > 0) return true;
+  if (Number(pollSummary.enqueued_target_count || 0) > 0) return true;
+  if (Number(pollSummary.duplicate_enqueue_count || 0) > 0) return true;
+  if (Number(pollSummary.seen_skipped_count || 0) > 0) return true;
+
+  return Object.values(pollSummary.source_results || {}).some((result) =>
+    result?.ok === false || Boolean(result?.error),
+  );
+}
+
 export function createPollRuntime({
   logger = console,
   monitor,
@@ -175,7 +186,8 @@ export function createPollRuntime({
       monitor.lastPollSuccessAt = toIsoString(now);
       monitor.lastPollError = null;
       suppressionReporter.flushDue(Date.now());
-      logger.info("poll_completed", {
+      const pollCompletedLevel = hasPollActivity(pollSummary) ? "info" : "debug";
+      logger[pollCompletedLevel]?.("poll_completed", {
         duration_ms: Date.now() - startedAt,
         ...pollSummary,
       });
