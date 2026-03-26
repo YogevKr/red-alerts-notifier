@@ -149,6 +149,7 @@ services:
       - LOG_SUPPRESSION_INTERVAL_MS=${LOG_SUPPRESSION_INTERVAL_MS:-60000}
       - NOTIFIER_ACTIVE_TRANSPORTS=${NOTIFIER_ACTIVE_TRANSPORTS:-}
       - NOTIFIER_WORKER_ID=${NOTIFIER_WORKER_ID:-}
+      - POLLER_INTERNAL_URL=${POLLER_INTERNAL_URL:-http://poller:3000}
     volumes:
       - poller_state:/app/data
     depends_on:

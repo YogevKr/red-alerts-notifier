@@ -42,6 +42,7 @@ export function startHttpServer({
   buildOpsDeliveryResponse,
   buildOpsSendPresetResponse,
   setTelegramManagementState,
+  setNotifierWorkerState,
   buildHealthResponse,
   buildHealthErrorResponse,
 } = {}) {
@@ -210,6 +211,21 @@ export function startHttpServer({
         writeJson(res, 200, {
           ok: true,
           monitoring: setTelegramManagementState(payload),
+        });
+      } catch (err) {
+        const statusCode =
+          err instanceof SyntaxError || err instanceof TypeError ? 400 : 500;
+        writeJson(res, statusCode, { ok: false, error: err.message });
+      }
+      return;
+    }
+
+    if (url.pathname === "/ops/notifier_worker" && req.method === "POST") {
+      try {
+        const payload = await readJsonBody(req);
+        writeJson(res, 200, {
+          ok: true,
+          monitoring: setNotifierWorkerState(payload),
         });
       } catch (err) {
         const statusCode =

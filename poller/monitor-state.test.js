@@ -40,6 +40,8 @@ describe("createPollerMonitor", () => {
 
     assert.equal(monitor.whatsappActiveInstance, "primary");
     assert.equal(monitor.whatsappFallbackInstance, "fallback");
+    assert.equal(monitor.notifierWorkerEnabled, false);
+    assert.equal(monitor.notifierWorkerLastHeartbeatAt, null);
     const snapshot = getSourceFailureSnapshot(monitor);
     snapshot.oref_alerts.consecutiveFailures = 99;
     assert.equal(monitor.sourceFailures.oref_alerts.consecutiveFailures, 0);

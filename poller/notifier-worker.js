@@ -33,6 +33,7 @@ const {
   NOTIFIER_ACTIVE_TRANSPORTS = "",
   NOTIFIER_WORKER_ID = `notifier-${process.pid}`,
   TELEGRAM_BOT_TOKEN = "",
+  POLLER_INTERNAL_URL = "http://poller:3000",
 } = process.env;
 
 const logger = createLogger("notifier-worker");
@@ -110,18 +111,57 @@ function isMainModule(importMetaUrl) {
   return process.argv[1] && fileURLToPath(importMetaUrl) === process.argv[1];
 }
 
+async function fetchPoller(path, options = {}) {
+  const res = await fetch(`${POLLER_INTERNAL_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body?.ok === false) {
+    throw new Error(body?.error || `poller ${path} responded ${res.status}`);
+  }
+  return body;
+}
+
+async function reportNotifierWorkerState(update = {}) {
+  try {
+    await fetchPoller("/ops/notifier_worker", {
+      method: "POST",
+      body: JSON.stringify({
+        enabled: true,
+        workerId: NOTIFIER_WORKER_ID,
+        ...update,
+      }),
+    });
+  } catch (err) {
+    logger.warn("notifier_worker_state_report_failed", {
+      error: err,
+      poller_internal_url: POLLER_INTERNAL_URL,
+    });
+  }
+}
+
 async function init() {
   const workerOutbox = requireOutbox();
   await workerOutbox.ensureSchema();
 
+  let wakeupMode = "poll_only";
   const workerLoop = createNotifierWorkerLoop({
     outbox: workerOutbox,
     logger,
     activeNotifiers,
     pollIntervalMs,
     statusRefreshMs,
+    heartbeatIntervalMs: statusRefreshMs,
     reserveBatch,
     maxConcurrency,
+    onHeartbeat: (update) => reportNotifierWorkerState({
+      wakeupMode,
+      ...update,
+    }),
     processReservedJobs,
     processJob: (job, options = {}) => processReservedJob(job, {
       ...options,
@@ -136,7 +176,6 @@ async function init() {
     }),
   });
 
-  let wakeupMode = "poll_only";
   if (pool) {
     try {
       const listener = createOutboxReadyListenerSupervisor({
@@ -183,6 +222,10 @@ async function init() {
     wakeup_mode: wakeupMode,
   });
 
+  await reportNotifierWorkerState({
+    wakeupMode,
+    lastError: null,
+  });
   workerLoop.start();
 }
 

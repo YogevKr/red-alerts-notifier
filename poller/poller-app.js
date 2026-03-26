@@ -4,7 +4,6 @@ import { summarizeDebugCaptureStores } from "./debug-capture.js";
 import {
   PagerDutyIncidentManager,
   hasExceededThreshold,
-  collectStaleNotifierTransports,
   getOutboxBacklogAgeMs,
   hasOutboxBacklogExceededThreshold,
   hasNotifierTransport,
@@ -219,7 +218,6 @@ export function createPollerApp(config = {}) {
     hasExceededThreshold,
     getOutboxBacklogAgeMs,
     hasOutboxBacklogExceededThreshold,
-    collectStaleNotifierTransports,
     hasNotifierTransport,
     whatsappDisconnectThresholdMs: pagerDutyConfig.whatsappDisconnectThresholdMs,
     sourceFailureThreshold: pagerDutyConfig.sourceFailureThreshold,
@@ -227,6 +225,8 @@ export function createPollerApp(config = {}) {
     dbDisconnectThresholdMs: pagerDutyConfig.dbDisconnectThresholdMs,
     outboxBacklogThresholdMs: pagerDutyConfig.outboxBacklogThresholdMs,
     notifierStaleThresholdMs: pagerDutyConfig.notifierStaleThresholdMs,
+    telegramBotStaleThresholdMs: pagerDutyConfig.telegramBotStaleThresholdMs,
+    tzevaadomDisconnectThresholdMs: pagerDutyConfig.tzevaadomDisconnectThresholdMs,
   });
   setRealtimeHealthHandler(async (update) => {
     const checkedAtMs = Date.parse(update.checkedAt || "");
@@ -289,6 +289,34 @@ export function createPollerApp(config = {}) {
       lastCommandAt: monitor.telegramLastCommandAt,
       lastCommand: monitor.telegramLastCommand,
       lastError: monitor.telegramLastError,
+    };
+  }
+  function setNotifierWorkerState(update = {}) {
+    const enabled = typeof update.enabled === "boolean"
+      ? update.enabled
+      : monitor.notifierWorkerEnabled;
+    monitor.notifierWorkerEnabled = Boolean(enabled);
+    monitor.notifierWorkerId =
+      normalizeOptionalString(update.workerId) || monitor.notifierWorkerId || null;
+    monitor.notifierWorkerWakeupMode =
+      normalizeOptionalString(update.wakeupMode) || monitor.notifierWorkerWakeupMode || null;
+    monitor.notifierWorkerLastHeartbeatAt =
+      normalizeOptionalString(update.lastHeartbeatAt) || monitor.notifierWorkerLastHeartbeatAt || null;
+    monitor.notifierWorkerLastStatusRefreshAt =
+      normalizeOptionalString(update.lastStatusRefreshAt)
+      || monitor.notifierWorkerLastStatusRefreshAt
+      || null;
+    monitor.notifierWorkerLastError =
+      Object.hasOwn(update, "lastError")
+        ? normalizeOptionalString(update.lastError)
+        : monitor.notifierWorkerLastError || null;
+    return {
+      enabled: monitor.notifierWorkerEnabled,
+      workerId: monitor.notifierWorkerId,
+      wakeupMode: monitor.notifierWorkerWakeupMode,
+      lastHeartbeatAt: monitor.notifierWorkerLastHeartbeatAt,
+      lastStatusRefreshAt: monitor.notifierWorkerLastStatusRefreshAt,
+      lastError: monitor.notifierWorkerLastError,
     };
   }
   const scopedBuildAlertLogFields = (alert, matched, options = {}) =>
@@ -510,6 +538,7 @@ export function createPollerApp(config = {}) {
       buildOpsDeliveryResponse,
       buildOpsSendPresetResponse,
       setTelegramManagementState,
+      setNotifierWorkerState,
       buildHealthResponse,
       buildHealthErrorResponse,
     });

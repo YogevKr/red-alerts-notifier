@@ -4,18 +4,35 @@ export function createNotifierWorkerLoop({
   activeNotifiers = [],
   pollIntervalMs = 1000,
   statusRefreshMs = 15_000,
+  heartbeatIntervalMs = statusRefreshMs,
   reserveBatch = 5,
   maxConcurrency = reserveBatch,
   processReservedJobs,
   processJob,
+  onHeartbeat = null,
   schedule = (callback, delayMs) => setTimeout(callback, delayMs),
   clearSchedule = (timer) => clearTimeout(timer),
   now = () => Date.now(),
 } = {}) {
   let tickInFlight = false;
   let lastStatusRefreshAt = 0;
+  let lastHeartbeatReportAt = null;
   let nextTickTimer = null;
   let immediateTickRequested = false;
+
+  async function reportHeartbeat(patch = {}, timestampMs = now()) {
+    if (typeof onHeartbeat !== "function") return;
+    try {
+      await onHeartbeat({
+        lastHeartbeatAt: new Date(timestampMs).toISOString(),
+        ...patch,
+      });
+    } catch (err) {
+      logger.warn?.("notifier_worker_heartbeat_report_failed", {
+        error: err,
+      });
+    }
+  }
 
   function scheduleNext(delayMs = pollIntervalMs) {
     if (nextTickTimer) {
@@ -39,6 +56,14 @@ export function createNotifierWorkerLoop({
     immediateTickRequested = false;
     try {
       const currentNow = now();
+      if (
+        !Number.isFinite(lastHeartbeatReportAt)
+        || currentNow - lastHeartbeatReportAt >= heartbeatIntervalMs
+      ) {
+        await reportHeartbeat({}, currentNow);
+        lastHeartbeatReportAt = currentNow;
+      }
+
       const uncertainJobs = await outbox.recoverStaleDispatches(currentNow);
       for (const job of uncertainJobs) {
         logger.warn?.("outbox_job_marked_uncertain", {
@@ -56,14 +81,27 @@ export function createNotifierWorkerLoop({
 
       if (jobs.length === 0) {
         if (currentNow - lastStatusRefreshAt >= statusRefreshMs) {
+          let statusRefreshError = null;
           try {
-            await Promise.allSettled(activeNotifiers.map(([, notifier]) => notifier.refreshStatus()));
+            const results = await Promise.allSettled(
+              activeNotifiers.map(([, notifier]) => notifier.refreshStatus()),
+            );
+            const rejected = results
+              .filter((result) => result.status === "rejected")
+              .map((result) => result.reason?.message || String(result.reason || "unknown"));
+            statusRefreshError = rejected.length > 0 ? rejected.join("; ") : null;
           } catch (err) {
+            statusRefreshError = err?.message || String(err);
             logger.warn?.("notifier_status_refresh_failed", {
               error: err,
             });
           } finally {
             lastStatusRefreshAt = currentNow;
+            await reportHeartbeat({
+              lastStatusRefreshAt: new Date(currentNow).toISOString(),
+              lastError: statusRefreshError,
+            }, currentNow);
+            lastHeartbeatReportAt = currentNow;
           }
         }
         return;

@@ -46,4 +46,47 @@ describe("createNotifierWorkerLoop", () => {
     loop.requestImmediateTick();
     assert.equal(scheduled[2].delayMs, 0);
   });
+
+  it("reports worker heartbeats from the active loop", async () => {
+    const heartbeats = [];
+    const loop = createNotifierWorkerLoop({
+      outbox: {
+        async recoverStaleDispatches() {
+          return [];
+        },
+        async reserve() {
+          return [];
+        },
+      },
+      logger: { warn() {} },
+      activeNotifiers: [],
+      pollIntervalMs: 1000,
+      statusRefreshMs: 15_000,
+      heartbeatIntervalMs: 5_000,
+      reserveBatch: 5,
+      maxConcurrency: 5,
+      processReservedJobs: async () => {},
+      processJob: async () => {},
+      onHeartbeat: async (update) => {
+        heartbeats.push(update);
+      },
+      schedule: (callback, delayMs) => ({ callback, delayMs }),
+      clearSchedule() {},
+      now: (() => {
+        let value = 0;
+        return () => {
+          value += 5_000;
+          return value;
+        };
+      })(),
+    });
+
+    await loop.tick();
+
+    assert.deepEqual(heartbeats, [
+      {
+        lastHeartbeatAt: "1970-01-01T00:00:05.000Z",
+      },
+    ]);
+  });
 });

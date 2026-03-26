@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createPagerDutyRuntime } from "./pagerduty-runtime.js";
 import {
-  collectStaleNotifierTransports,
   getOutboxBacklogAgeMs,
   hasExceededThreshold,
   hasNotifierTransport,
@@ -83,7 +82,6 @@ function createRuntime(now = Date.parse("2026-03-18T21:02:00.000Z"), overrides =
     hasExceededThreshold,
     getOutboxBacklogAgeMs,
     hasOutboxBacklogExceededThreshold,
-    collectStaleNotifierTransports,
     hasNotifierTransport,
     whatsappDisconnectThresholdMs: 120_000,
     sourceFailureThreshold: 6,
@@ -123,7 +121,31 @@ describe("createPagerDutyRuntime", () => {
     const notifierCalls = pagerDuty.calls.filter((call) => call.payload.dedupKey === "notifier-stale");
     assert.equal(notifierCalls.length, 1);
     assert.equal(notifierCalls[0].kind, "trigger");
-    assert.equal(notifierCalls[0].payload.summary, "Notifier worker health checks are stale");
+    assert.equal(notifierCalls[0].payload.summary, "Notifier worker heartbeat is stale");
+  });
+
+  it("resolves notifier-stale when worker heartbeat is recent", async () => {
+    const now = Date.parse("2026-03-18T21:05:00.000Z");
+    const { pagerDuty, runtime } = createRuntime(now, {
+      monitor: {
+        notifierWorkerEnabled: true,
+        notifierWorkerId: "red-alerts-notifier",
+        notifierWorkerWakeupMode: "listen_notify",
+        notifierWorkerLastHeartbeatAt: "2026-03-18T21:04:50.000Z",
+        notifierWorkerLastStatusRefreshAt: "2026-03-18T21:04:50.000Z",
+        notifierWorkerLastError: null,
+      },
+    });
+
+    await runtime.syncPagerDutyHealth(now);
+
+    const notifierCalls = pagerDuty.calls.filter((call) => call.payload.dedupKey === "notifier-stale");
+    assert.deepEqual(notifierCalls, [
+      {
+        kind: "resolve",
+        payload: { dedupKey: "notifier-stale" },
+      },
+    ]);
   });
 
   it("triggers source outage when all monitored sources are failing", async () => {

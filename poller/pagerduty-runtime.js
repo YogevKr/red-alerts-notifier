@@ -17,7 +17,6 @@ export function createPagerDutyRuntime({
   hasExceededThreshold,
   getOutboxBacklogAgeMs,
   hasOutboxBacklogExceededThreshold,
-  collectStaleNotifierTransports,
   hasNotifierTransport,
   whatsappDisconnectThresholdMs,
   sourceFailureThreshold,
@@ -280,21 +279,33 @@ export function createPagerDutyRuntime({
   }
 
   async function syncPagerDutyNotifier(now = Date.now(), notifierState = getNotifierStateSnapshot()) {
-    if (!hasExceededThreshold(runtimeStartedAt, notifierStaleThresholdMs, now)) {
+    if (
+      !hasNotifierTransport(configuredNotifierTransports, "whatsapp")
+      && !hasNotifierTransport(configuredNotifierTransports, "telegram")
+    ) {
       await pagerDuty.resolveIncident({
         dedupKey: "notifier-stale",
       });
       return;
     }
 
-    const staleTransports = collectStaleNotifierTransports(
-      notifierState,
-      configuredNotifierTransports,
-      notifierStaleThresholdMs,
-      now,
-    );
+    const lastHeartbeatAt = monitor.notifierWorkerLastHeartbeatAt || null;
+    const lastHeartbeatMs = Date.parse(lastHeartbeatAt || "");
 
-    if (staleTransports.length === 0) {
+    if (
+      Number.isFinite(lastHeartbeatMs)
+      && !hasExceededThreshold(lastHeartbeatMs, notifierStaleThresholdMs, now)
+    ) {
+      await pagerDuty.resolveIncident({
+        dedupKey: "notifier-stale",
+      });
+      return;
+    }
+
+    if (
+      !Number.isFinite(lastHeartbeatMs)
+      && !hasExceededThreshold(runtimeStartedAt, notifierStaleThresholdMs, now)
+    ) {
       await pagerDuty.resolveIncident({
         dedupKey: "notifier-stale",
       });
@@ -303,12 +314,27 @@ export function createPagerDutyRuntime({
 
     await pagerDuty.triggerIncident({
       dedupKey: "notifier-stale",
-      summary: "Notifier worker health checks are stale",
+      summary: "Notifier worker heartbeat is stale",
       severity: "critical",
       customDetails: {
         checkedAt: toIsoString(now),
         thresholdMs: notifierStaleThresholdMs,
-        transports: staleTransports,
+        enabled: Boolean(monitor.notifierWorkerEnabled),
+        workerId: monitor.notifierWorkerId || null,
+        wakeupMode: monitor.notifierWorkerWakeupMode || null,
+        lastHeartbeatAt,
+        lastStatusRefreshAt: monitor.notifierWorkerLastStatusRefreshAt || null,
+        lastError: monitor.notifierWorkerLastError || null,
+        transports: configuredNotifierTransports,
+        transportChecks: configuredNotifierTransports.map((transport) => ({
+          transport,
+          lastCheckedAt: transport === "telegram"
+            ? (notifierState.telegramLastCheckedAt || null)
+            : (notifierState.whatsappLastCheckedAt || null),
+          lastError: transport === "telegram"
+            ? (notifierState.telegramLastError || null)
+            : (notifierState.whatsappLastError || null),
+        })),
       },
     });
   }
