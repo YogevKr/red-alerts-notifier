@@ -6,6 +6,7 @@ export function createPagerDutyRuntime({
   runtimeStartedAt = Date.now(),
   logger = console,
   configuredNotifierTransports = [],
+  activeSourceNames = [],
   toIsoString,
   formatDisconnectedSince,
   getSourceFailureSnapshot,
@@ -24,7 +25,18 @@ export function createPagerDutyRuntime({
   dbDisconnectThresholdMs,
   outboxBacklogThresholdMs,
   notifierStaleThresholdMs,
+  tzevaadomDisconnectThresholdMs,
 } = {}) {
+  const activeSourceSet = new Set(
+    (Array.isArray(activeSourceNames) ? activeSourceNames : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  function hasActiveSource(source = "") {
+    return activeSourceSet.has(String(source || "").trim().toLowerCase());
+  }
+
   async function checkDatabaseHealth(now = Date.now()) {
     const checkedAt = toIsoString(now);
     if (!dbPool) {
@@ -300,6 +312,46 @@ export function createPagerDutyRuntime({
     });
   }
 
+  async function syncPagerDutyTzevaadom(now = Date.now()) {
+    if (!hasActiveSource("tzevaadom")) {
+      await pagerDuty.resolveIncident({
+        dedupKey: "tzevaadom-disconnected",
+      });
+      return;
+    }
+
+    const state = monitor.sourceFailures?.tzevaadom;
+    const disconnectedSinceMs = Date.parse(state?.disconnectedSince || "");
+    const lastError = String(state?.lastError || "");
+    const isDisconnected = Number(state?.consecutiveFailures || 0) > 0
+      && lastError.includes("disconnected");
+
+    if (
+      !isDisconnected
+      || !Number.isFinite(disconnectedSinceMs)
+      || !hasExceededThreshold(disconnectedSinceMs, tzevaadomDisconnectThresholdMs, now)
+    ) {
+      await pagerDuty.resolveIncident({
+        dedupKey: "tzevaadom-disconnected",
+      });
+      return;
+    }
+
+    await pagerDuty.triggerIncident({
+      dedupKey: "tzevaadom-disconnected",
+      summary: "Tzevaadom stream is disconnected",
+      severity: "warning",
+      customDetails: {
+        checkedAt: toIsoString(now),
+        disconnectedSince: state.disconnectedSince,
+        thresholdMs: tzevaadomDisconnectThresholdMs,
+        consecutiveFailures: state.consecutiveFailures,
+        lastFailureAt: state.lastFailureAt,
+        lastError,
+      },
+    });
+  }
+
   async function syncPagerDutyHealth(now = Date.now()) {
     if (!pagerDuty.enabled) return;
 
@@ -323,6 +375,7 @@ export function createPagerDutyRuntime({
       syncPagerDutyOutboxAvailability(now, outboxError),
       syncPagerDutyOutbox(now, outboxStats),
       syncPagerDutyNotifier(now, notifierState),
+      syncPagerDutyTzevaadom(now),
     ]);
 
     for (const result of results) {

@@ -34,6 +34,7 @@ export function createPollerMonitor({
           lastSuccessAt: null,
           lastFailureAt: null,
           lastError: null,
+          disconnectedSince: null,
         },
       ]),
     ),
@@ -82,12 +83,16 @@ export function applySourceHealthUpdate(
     state.consecutiveFailures = 0;
     state.lastSuccessAt = checkedAt;
     state.lastError = null;
+    state.disconnectedSince = null;
     return state;
   }
 
   state.consecutiveFailures += 1;
   state.lastFailureAt = checkedAt;
   state.lastError = error || "unknown";
+  if (!state.disconnectedSince) {
+    state.disconnectedSince = checkedAt || null;
+  }
   return state;
 }
 

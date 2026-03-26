@@ -66,6 +66,16 @@ describe("applySourceHealthUpdate", () => {
     assert.equal(monitor.sourceFailures.tzevaadom.consecutiveFailures, 1);
     assert.equal(monitor.sourceFailures.tzevaadom.lastFailureAt, "2026-03-24T12:00:00.000Z");
     assert.equal(monitor.sourceFailures.tzevaadom.lastError, "websocket disconnected");
+    assert.equal(monitor.sourceFailures.tzevaadom.disconnectedSince, "2026-03-24T12:00:00.000Z");
+
+    applySourceHealthUpdate(monitor, {
+      source: "tzevaadom",
+      ok: false,
+      error: "websocket disconnected",
+      checkedAt: "2026-03-24T12:00:03.000Z",
+    });
+    assert.equal(monitor.sourceFailures.tzevaadom.consecutiveFailures, 2);
+    assert.equal(monitor.sourceFailures.tzevaadom.disconnectedSince, "2026-03-24T12:00:00.000Z");
 
     applySourceHealthUpdate(monitor, {
       source: "tzevaadom",
@@ -75,5 +85,6 @@ describe("applySourceHealthUpdate", () => {
     assert.equal(monitor.sourceFailures.tzevaadom.consecutiveFailures, 0);
     assert.equal(monitor.sourceFailures.tzevaadom.lastSuccessAt, "2026-03-24T12:00:05.000Z");
     assert.equal(monitor.sourceFailures.tzevaadom.lastError, null);
+    assert.equal(monitor.sourceFailures.tzevaadom.disconnectedSince, null);
   });
 });

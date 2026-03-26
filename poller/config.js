@@ -122,6 +122,7 @@ export function createPollerConfig(env = process.env) {
     PAGERDUTY_DB_DISCONNECT_MS = "30000",
     PAGERDUTY_OUTBOX_BACKLOG_MS = "60000",
     PAGERDUTY_NOTIFIER_STALE_MS = "45000",
+    PAGERDUTY_TZEVAADOM_DISCONNECT_MS = "300000",
   } = env;
 
   const appDir = dirname(fileURLToPath(import.meta.url));
@@ -248,6 +249,7 @@ export function createPollerConfig(env = process.env) {
       dbDisconnectThresholdMs: parsePositiveIntEnv(PAGERDUTY_DB_DISCONNECT_MS, 30_000),
       outboxBacklogThresholdMs: parsePositiveIntEnv(PAGERDUTY_OUTBOX_BACKLOG_MS, 60_000),
       notifierStaleThresholdMs: parsePositiveIntEnv(PAGERDUTY_NOTIFIER_STALE_MS, 45_000),
+      tzevaadomDisconnectThresholdMs: parsePositiveIntEnv(PAGERDUTY_TZEVAADOM_DISCONNECT_MS, 300_000),
     },
     database: {
       pollerUrl: String(POLLER_DATABASE_URL || "").trim(),

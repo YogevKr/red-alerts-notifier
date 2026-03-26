@@ -56,6 +56,7 @@ function createRuntime(now = Date.parse("2026-03-18T21:02:00.000Z"), overrides =
     runtimeStartedAt: now,
     logger: { warn() {}, info() {}, log() {} },
     configuredNotifierTransports: ["telegram"],
+    activeSourceNames: ["oref_alerts", "oref_history", "tzevaadom"],
     toIsoString(timestampMs = Date.now()) {
       return new Date(timestampMs).toISOString();
     },
@@ -90,6 +91,7 @@ function createRuntime(now = Date.parse("2026-03-18T21:02:00.000Z"), overrides =
     dbDisconnectThresholdMs: 30_000,
     outboxBacklogThresholdMs: 60_000,
     notifierStaleThresholdMs: 45_000,
+    tzevaadomDisconnectThresholdMs: 300_000,
   });
 
   return { pagerDuty, runtime };
@@ -140,5 +142,61 @@ describe("createPagerDutyRuntime", () => {
     assert.equal(sourceCalls.length, 1);
     assert.equal(sourceCalls[0].kind, "trigger");
     assert.equal(sourceCalls[0].payload.summary, "All alert sources are failing");
+  });
+
+  it("triggers tzevaadom disconnect after the configured threshold", async () => {
+    const disconnectedAt = "2026-03-18T21:00:00.000Z";
+    const now = Date.parse("2026-03-18T21:05:01.000Z");
+    const { pagerDuty, runtime } = createRuntime(now, {
+      monitor: {
+        sourceFailures: {
+          oref_alerts: { consecutiveFailures: 0, lastError: null, disconnectedSince: null },
+          oref_history: { consecutiveFailures: 0, lastError: null, disconnectedSince: null },
+          tzevaadom: {
+            consecutiveFailures: 12,
+            lastFailureAt: "2026-03-18T21:05:00.000Z",
+            lastError: "websocket disconnected",
+            disconnectedSince: disconnectedAt,
+          },
+        },
+      },
+    });
+
+    await runtime.syncPagerDutyHealth(now);
+
+    const calls = pagerDuty.calls.filter((call) => call.payload.dedupKey === "tzevaadom-disconnected");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].kind, "trigger");
+    assert.equal(calls[0].payload.summary, "Tzevaadom stream is disconnected");
+    assert.equal(calls[0].payload.severity, "warning");
+  });
+
+  it("resolves tzevaadom disconnect before the threshold", async () => {
+    const disconnectedAt = "2026-03-18T21:04:30.000Z";
+    const now = Date.parse("2026-03-18T21:05:00.000Z");
+    const { pagerDuty, runtime } = createRuntime(now, {
+      monitor: {
+        sourceFailures: {
+          oref_alerts: { consecutiveFailures: 0, lastError: null, disconnectedSince: null },
+          oref_history: { consecutiveFailures: 0, lastError: null, disconnectedSince: null },
+          tzevaadom: {
+            consecutiveFailures: 2,
+            lastFailureAt: "2026-03-18T21:04:59.000Z",
+            lastError: "websocket disconnected",
+            disconnectedSince: disconnectedAt,
+          },
+        },
+      },
+    });
+
+    await runtime.syncPagerDutyHealth(now);
+
+    const calls = pagerDuty.calls.filter((call) => call.payload.dedupKey === "tzevaadom-disconnected");
+    assert.deepEqual(calls, [
+      {
+        kind: "resolve",
+        payload: { dedupKey: "tzevaadom-disconnected" },
+      },
+    ]);
   });
 });

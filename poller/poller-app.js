@@ -203,6 +203,7 @@ export function createPollerApp(config = {}) {
     notificationOutbox,
     logger,
     configuredNotifierTransports,
+    activeSourceNames: sources.activeNames,
     toIsoString,
     formatDisconnectedSince: formatDisconnectedSinceValue,
     getSourceFailureSnapshot: () => getSourceFailureSnapshot(monitor),
