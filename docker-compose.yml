@@ -73,7 +73,7 @@ services:
         host_ip: "${WAHA_HOST_IP:-127.0.0.1}"
     environment:
       - WAHA_API_KEY=${WAHA_API_KEY:-}
-      - WHATSAPP_DEFAULT_ENGINE=${WAHA_DEFAULT_ENGINE:-GOWS}
+      - WHATSAPP_DEFAULT_ENGINE=${WAHA_DEFAULT_ENGINE:-WEBJS}
     volumes:
       - waha_sessions:/app/.sessions
 
