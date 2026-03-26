@@ -300,4 +300,101 @@ describe("WhatsAppNotifier", () => {
     assert.equal(result.provider, "evolution");
     assert.equal(result.instanceName, "Hamal");
   });
+
+  it("mirrors configured targets through WAHA after Evolution succeeds", async () => {
+    const dirPath = mkdtempSync(join(tmpdir(), "waha-mirror-"));
+    const stateFilePath = join(dirPath, "whatsapp-state.json");
+    const recentSentFilePath = join(dirPath, "recent-sent.json");
+    const dedupeFilePath = join(dirPath, "dedupe.json");
+    const calls = [];
+    const notifier = new WhatsAppNotifier({
+      evolutionUrl: "http://evolution-api:8080",
+      evolutionApiKey: "evolution-key",
+      evolutionInstance: "Hamal",
+      wahaUrl: "http://waha:3000",
+      wahaApiKey: "waha-key",
+      wahaSession: "default",
+      wahaMirrorTargets: ["group-secondary@g.us"],
+      stateFilePath,
+      recentSentFilePath,
+      dedupeFilePath,
+    });
+    notifier.resolveActiveEvolutionInstance = async () => ({
+      instanceName: "Hamal",
+      connectionState: "open",
+      usedFallback: false,
+      primary: {
+        instanceName: "Hamal",
+        connectionState: "open",
+      },
+      fallback: {
+        instanceName: null,
+        connectionState: null,
+      },
+    });
+    notifier.sendImageMessage = async ({ chatId, instanceName }) => {
+      calls.push({ provider: "evolution", chatId, instanceName });
+      return {
+        mode: "image",
+        providerMessageId: "evolution-msg-1",
+      };
+    };
+    notifier.resolveWahaSession = async () => ({
+      name: "default",
+      status: "WORKING",
+    });
+    notifier.sendWahaImageMessage = async ({ chatId, sessionName }) => {
+      calls.push({ provider: "waha", chatId, instanceName: sessionName });
+      return {
+        mode: "text",
+        providerMessageId: "waha-msg-2",
+      };
+    };
+
+    const result = await notifier.send({
+      delivery_key: "mirror-key-1",
+      chat_id: "group-secondary@g.us",
+      payload_json: {
+        alert: {
+          id: "alert-3",
+          source: "manual",
+          cat: "1",
+          title: "ירי רקטות וטילים",
+          desc: "",
+          data: ["חיפה"],
+          alertDate: "2026-03-26 21:11:00",
+        },
+        matched: ["חיפה"],
+        chatId: "group-secondary@g.us",
+        eventType: "active_alert",
+        source: "manual",
+      },
+    });
+
+    assert.deepEqual(calls, [
+      {
+        provider: "evolution",
+        chatId: "group-secondary@g.us",
+        instanceName: "Hamal",
+      },
+      {
+        provider: "waha",
+        chatId: "group-secondary@g.us",
+        instanceName: "default",
+      },
+    ]);
+    assert.equal(result.provider, "evolution");
+    assert.deepEqual(result.mirroredProviders, ["waha"]);
+
+    const recentSent = loadRecentSent(recentSentFilePath);
+    assert.equal(recentSent.length, 2);
+    assert.equal(recentSent[0].provider, "waha");
+    assert.equal(recentSent[1].provider, "evolution");
+
+    const state = loadNotifierState(stateFilePath, {
+      includeTelegram: false,
+    });
+    assert.equal(state.whatsappWahaSession, "default");
+    assert.equal(state.whatsappWahaState, "WORKING");
+  });
 });

@@ -157,6 +157,7 @@ Important env vars (see `.env.example` for full list):
 - `WAHA_API_KEY` — optional WAHA API key
 - `WAHA_SESSION` — WAHA session name used for WAHA-routed targets
 - `WAHA_TARGETS` — optional comma-separated WhatsApp targets that should route through WAHA instead of Evolution
+- `WAHA_MIRROR_TARGETS` — optional comma-separated WhatsApp targets that should still send via Evolution and also mirror through WAHA
 - `POLLER_DATABASE_URL` — PostgreSQL connection string
 - `WHATSAPP_TARGETS` — comma-separated destination list; supports WhatsApp numbers, WhatsApp groups, and `telegram:<chat_id>`
 - `WHATSAPP_NUMBER` — sender WhatsApp number

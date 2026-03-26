@@ -274,6 +274,7 @@ export class WhatsAppNotifier {
     wahaSession = process.env.WAHA_SESSION || "default",
     wahaTimeoutMs = DEFAULT_WAHA_TIMEOUT_MS,
     wahaTargets = parseChatTargets(process.env.WAHA_TARGETS || ""),
+    wahaMirrorTargets = parseChatTargets(process.env.WAHA_MIRROR_TARGETS || ""),
     wahaDeviceName = process.env.WAHA_DEVICE_NAME || "WAHA",
     wahaBrowserName = process.env.WAHA_BROWSER_NAME || "Red Alerts",
     stateFilePath = notifierStatePath,
@@ -290,6 +291,7 @@ export class WhatsAppNotifier {
     this.wahaSession = String(wahaSession || "").trim() || "default";
     this.wahaTimeoutMs = wahaTimeoutMs;
     this.wahaTargetSet = new Set(parseChatTargets(wahaTargets).map((target) => normalizeChatTarget(target)));
+    this.wahaMirrorTargetSet = new Set(parseChatTargets(wahaMirrorTargets).map((target) => normalizeChatTarget(target)));
     this.wahaDeviceName = String(wahaDeviceName || "").trim() || "WAHA";
     this.wahaBrowserName = String(wahaBrowserName || "").trim() || "Red Alerts";
     this.stateFilePath = stateFilePath;
@@ -305,7 +307,11 @@ export class WhatsAppNotifier {
   }
 
   get wahaEnabled() {
-    return this.wahaTargetSet.size > 0;
+    return this.wahaTargetSet.size > 0 || this.wahaMirrorTargetSet.size > 0;
+  }
+
+  get trackedWahaTargets() {
+    return [...new Set([...this.wahaTargetSet, ...this.wahaMirrorTargetSet])];
   }
 
   status() {
@@ -344,11 +350,11 @@ export class WhatsAppNotifier {
           whatsappWahaSession: this.wahaSession,
           whatsappWahaLastCheckedAt: toIsoString(),
           whatsappWahaLastError: err.message,
-          whatsappWahaRoutedTargets: [...this.wahaTargetSet],
+          whatsappWahaRoutedTargets: this.trackedWahaTargets,
         });
         logger.warn("waha_notifier_not_ready", {
           session_name: this.wahaSession,
-          routed_targets: [...this.wahaTargetSet],
+          routed_targets: this.trackedWahaTargets,
           error: err,
         });
       }
@@ -361,7 +367,7 @@ export class WhatsAppNotifier {
       whatsappWahaState: this.wahaEnabled ? this.state.whatsappWahaState : null,
       whatsappWahaLastCheckedAt: this.wahaEnabled ? this.state.whatsappWahaLastCheckedAt : null,
       whatsappWahaLastError: this.wahaEnabled ? this.state.whatsappWahaLastError : null,
-      whatsappWahaRoutedTargets: this.wahaEnabled ? [...this.wahaTargetSet] : [],
+      whatsappWahaRoutedTargets: this.wahaEnabled ? this.trackedWahaTargets : [],
     };
     if (this.wahaEnabled) {
       wahaPatch = await this.refreshWahaStatus();
@@ -437,7 +443,7 @@ export class WhatsAppNotifier {
         });
       }
 
-      return await this.sendViaEvolution({
+      const evolutionResult = await this.sendViaEvolution({
         alert,
         matched,
         target,
@@ -446,6 +452,24 @@ export class WhatsAppNotifier {
         deliveryKey,
         caption,
       });
+      if (this.shouldMirrorTargetToWaha(target.normalized || target.chatId)) {
+        await this.sendWahaMirror({
+          alert,
+          matched,
+          target,
+          eventType,
+          source,
+          deliveryKey,
+          caption,
+        });
+      }
+
+      return {
+        ...evolutionResult,
+        mirroredProviders: this.shouldMirrorTargetToWaha(target.normalized || target.chatId)
+          ? ["waha"]
+          : [],
+      };
     } finally {
       this.dedupeGate.clearInFlight(deliveryKey);
     }
@@ -454,6 +478,19 @@ export class WhatsAppNotifier {
   shouldRouteTargetToWaha(chatId = "") {
     const normalized = normalizeChatTarget(chatId);
     return normalized ? this.wahaTargetSet.has(normalized) : false;
+  }
+
+  shouldMirrorTargetToWaha(chatId = "") {
+    const normalized = normalizeChatTarget(chatId);
+    return normalized ? this.wahaMirrorTargetSet.has(normalized) : false;
+  }
+
+  appendRecentSentEntry(entry = {}) {
+    appendRecentSentEntry(entry, {
+      filePath: this.recentSentFilePath,
+      maxEntries: MAX_RECENT_SENT,
+      logger,
+    });
   }
 
   async sendViaEvolution({
@@ -474,7 +511,7 @@ export class WhatsAppNotifier {
       instanceName: active.instanceName,
     });
     this.dedupeGate.remember(deliveryKey);
-    appendRecentSentEntry({
+    this.appendRecentSentEntry({
       deliveredAt: toIsoString(),
       eventType,
       source,
@@ -490,10 +527,6 @@ export class WhatsAppNotifier {
       instanceName: active.instanceName,
       usedFallback: Boolean(active.usedFallback),
       provider: "evolution",
-    }, {
-      filePath: this.recentSentFilePath,
-      maxEntries: MAX_RECENT_SENT,
-      logger,
     });
     this.updateState({
       whatsappLastCheckedAt: toIsoString(),
@@ -541,7 +574,7 @@ export class WhatsAppNotifier {
       sessionName: session.name,
     });
     this.dedupeGate.remember(deliveryKey);
-    appendRecentSentEntry({
+    this.appendRecentSentEntry({
       deliveredAt: toIsoString(),
       eventType,
       source,
@@ -557,10 +590,6 @@ export class WhatsAppNotifier {
       instanceName: session.name,
       usedFallback: false,
       provider: "waha",
-    }, {
-      filePath: this.recentSentFilePath,
-      maxEntries: MAX_RECENT_SENT,
-      logger,
     });
     this.updateState({
       whatsappWahaSession: session.name,
@@ -584,6 +613,67 @@ export class WhatsAppNotifier {
       usedFallback: false,
       provider: "waha",
     };
+  }
+
+  async sendWahaMirror({
+    alert,
+    matched,
+    target,
+    eventType,
+    source,
+    deliveryKey,
+    caption,
+  }) {
+    try {
+      const session = await this.resolveWahaSession();
+      const result = await this.sendWahaImageMessage({
+        alert,
+        caption,
+        chatId: target.chatId,
+        eventType,
+        sessionName: session.name,
+      });
+      this.appendRecentSentEntry({
+        deliveredAt: toIsoString(),
+        eventType,
+        source,
+        title: alert.title || "",
+        chatId: target.normalized,
+        matchedLocations: matched,
+        semanticKey: buildSemanticAlertKey(alert, matched, { eventType }),
+        deliveryKey,
+        alertDate: alert.alertDate || null,
+        receivedAt: alert.receivedAt || null,
+        deliveryMode: result.mode,
+        transport: "whatsapp",
+        providerMessageId: result.providerMessageId || null,
+        instanceName: session.name,
+        usedFallback: false,
+        provider: "waha",
+      });
+      this.updateState({
+        whatsappWahaSession: session.name,
+        whatsappWahaState: session.status,
+        whatsappWahaLastCheckedAt: toIsoString(),
+        whatsappWahaLastError: null,
+        whatsappWahaRoutedTargets: this.trackedWahaTargets,
+      });
+      return result;
+    } catch (err) {
+      this.updateState({
+        whatsappWahaSession: this.wahaSession,
+        whatsappWahaLastCheckedAt: toIsoString(),
+        whatsappWahaLastError: err.message,
+        whatsappWahaRoutedTargets: this.trackedWahaTargets,
+      });
+      logger.warn("waha_mirror_delivery_failed", {
+        ...buildTargetLogFields(target.normalized || target.chatId),
+        event_type: eventType,
+        session_name: this.wahaSession,
+        error: err,
+      });
+      return null;
+    }
   }
 
   async fetchEvolution(path, options = {}) {
@@ -735,7 +825,7 @@ export class WhatsAppNotifier {
   async refreshWahaStatus() {
     const basePatch = {
       whatsappWahaSession: this.wahaSession,
-      whatsappWahaRoutedTargets: [...this.wahaTargetSet],
+      whatsappWahaRoutedTargets: this.trackedWahaTargets,
     };
     try {
       await this.ensureWahaSession();
