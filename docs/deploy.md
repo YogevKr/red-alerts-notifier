@@ -76,40 +76,6 @@ docker compose -f docker-compose.poller-only.yml up -d --build
 docker compose -f docker-compose.poller-only.yml ps
 ```
 
-## GCP canary beside a legacy stack
-
-Use this when you want to run `red-alerts-notifier` in parallel with an older `red-alerts` stack on the same VM, while reusing the existing Evolution API and PostgreSQL containers.
-
-Files:
-
-- `docker-compose.gcp-canary.yml`
-- `.env.gcp-canary.example`
-
-Recommended flow:
-
-1. Copy `.env.gcp-canary.example` to a real env file on the VM
-2. Fill in the existing Evolution API key and PostgreSQL URL
-3. Set `POLLER_DATABASE_SCHEMA=poller_canary`
-4. Set the canary delivery targets, for example:
-   - `WHATSAPP_TARGETS=972500000001,telegram:123456789`
-   - `NOTIFIER_ACTIVE_TRANSPORTS=whatsapp,telegram`
-5. If you want to reuse the same Telegram bot token from another host such as `tmm`, stop the other host's `telegram-bot` process first so only one process polls `getUpdates`
-6. Start the canary:
-
-```bash
-cp .env.gcp-canary.example .env.gcp-canary
-# edit .env.gcp-canary
-docker compose --env-file .env.gcp-canary -f docker-compose.gcp-canary.yml up -d --build
-docker compose --env-file .env.gcp-canary -f docker-compose.gcp-canary.yml ps
-```
-
-Notes:
-
-- The canary joins the existing Docker network `red-alerts_default` by default
-- It does not start its own `evolution-api`, `postgres`, or `redis`
-- `poller_canary` is an isolated schema for outbox + source-event ledger data
-- After bake, cut prod over by stopping the old sender stack and starting the new stack with `POLLER_DATABASE_SCHEMA=poller`
-
 ## Verify
 
 ```bash
