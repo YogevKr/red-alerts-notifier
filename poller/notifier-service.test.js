@@ -14,6 +14,7 @@ import {
   loadRecentSent,
   parseNotifierTarget,
   TelegramNotifier,
+  WhatsAppNotifier,
 } from "./notifier-service.js";
 
 const appDir = dirname(fileURLToPath(import.meta.url));
@@ -162,5 +163,141 @@ describe("TelegramNotifier", () => {
 
     const recentSent = loadRecentSent(recentSentFilePath);
     assert.equal(recentSent[0].deliveryMode, "text");
+  });
+});
+
+describe("WhatsAppNotifier", () => {
+  it("routes configured targets through WAHA", async () => {
+    const dirPath = mkdtempSync(join(tmpdir(), "waha-route-"));
+    const stateFilePath = join(dirPath, "whatsapp-state.json");
+    const recentSentFilePath = join(dirPath, "recent-sent.json");
+    const dedupeFilePath = join(dirPath, "dedupe.json");
+    const notifier = new WhatsAppNotifier({
+      evolutionUrl: "http://evolution-api:8080",
+      evolutionApiKey: "evolution-key",
+      evolutionInstance: "Hamal",
+      wahaUrl: "http://waha:3000",
+      wahaApiKey: "waha-key",
+      wahaSession: "YogevWaha",
+      wahaTargets: ["group-secondary@g.us"],
+      stateFilePath,
+      recentSentFilePath,
+      dedupeFilePath,
+    });
+    notifier.resolveActiveEvolutionInstance = async () => {
+      assert.fail("resolveActiveEvolutionInstance should not be called for WAHA-routed targets");
+    };
+    notifier.resolveWahaSession = async () => ({
+      name: "YogevWaha",
+      status: "WORKING",
+    });
+    notifier.sendWahaImageMessage = async ({ chatId, sessionName }) => {
+      assert.equal(chatId, "group-secondary@g.us");
+      assert.equal(sessionName, "YogevWaha");
+      return {
+        mode: "text",
+        providerMessageId: "waha-msg-1",
+      };
+    };
+
+    const result = await notifier.send({
+      delivery_key: "waha-key-1",
+      chat_id: "group-secondary@g.us",
+      payload_json: {
+        alert: {
+          id: "alert-1",
+          source: "manual",
+          cat: "1",
+          title: "ירי רקטות וטילים",
+          desc: "",
+          data: ["חיפה"],
+          alertDate: "2026-03-26 21:11:00",
+        },
+        matched: ["חיפה"],
+        chatId: "group-secondary@g.us",
+        eventType: "active_alert",
+        source: "manual",
+      },
+    });
+
+    assert.equal(result.provider, "waha");
+    assert.equal(result.instanceName, "YogevWaha");
+    assert.equal(result.mode, "text");
+
+    const recentSent = loadRecentSent(recentSentFilePath);
+    assert.equal(recentSent[0].provider, "waha");
+    assert.equal(recentSent[0].instanceName, "YogevWaha");
+
+    const state = loadNotifierState(stateFilePath, {
+      includeTelegram: false,
+    });
+    assert.equal(state.whatsappWahaSession, "YogevWaha");
+    assert.equal(state.whatsappWahaState, "WORKING");
+  });
+
+  it("keeps non-WAHA targets on Evolution", async () => {
+    const dirPath = mkdtempSync(join(tmpdir(), "evolution-route-"));
+    const stateFilePath = join(dirPath, "whatsapp-state.json");
+    const recentSentFilePath = join(dirPath, "recent-sent.json");
+    const dedupeFilePath = join(dirPath, "dedupe.json");
+    const notifier = new WhatsAppNotifier({
+      evolutionUrl: "http://evolution-api:8080",
+      evolutionApiKey: "evolution-key",
+      evolutionInstance: "Hamal",
+      wahaUrl: "http://waha:3000",
+      wahaApiKey: "waha-key",
+      wahaSession: "YogevWaha",
+      wahaTargets: ["group-secondary@g.us"],
+      stateFilePath,
+      recentSentFilePath,
+      dedupeFilePath,
+    });
+    notifier.resolveActiveEvolutionInstance = async () => ({
+      instanceName: "Hamal",
+      connectionState: "open",
+      usedFallback: false,
+      primary: {
+        instanceName: "Hamal",
+        connectionState: "open",
+      },
+      fallback: {
+        instanceName: null,
+        connectionState: null,
+      },
+    });
+    notifier.sendImageMessage = async ({ chatId, instanceName }) => {
+      assert.equal(chatId, "group-primary@g.us");
+      assert.equal(instanceName, "Hamal");
+      return {
+        mode: "image",
+        providerMessageId: "evolution-msg-1",
+      };
+    };
+    notifier.resolveWahaSession = async () => {
+      assert.fail("resolveWahaSession should not be called for Evolution targets");
+    };
+
+    const result = await notifier.send({
+      delivery_key: "evolution-key-1",
+      chat_id: "group-primary@g.us",
+      payload_json: {
+        alert: {
+          id: "alert-2",
+          source: "manual",
+          cat: "1",
+          title: "ירי רקטות וטילים",
+          desc: "",
+          data: ["חיפה"],
+          alertDate: "2026-03-26 21:11:00",
+        },
+        matched: ["חיפה"],
+        chatId: "group-primary@g.us",
+        eventType: "active_alert",
+        source: "manual",
+      },
+    });
+
+    assert.equal(result.provider, "evolution");
+    assert.equal(result.instanceName, "Hamal");
   });
 });

@@ -63,6 +63,20 @@ services:
       - app-db
       - evolution-redis
 
+  waha:
+    image: ${WAHA_IMAGE:-devlikeapro/waha:latest}
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - target: 3000
+        published: "${WAHA_PUBLISHED_PORT:-3004}"
+        host_ip: "${WAHA_HOST_IP:-127.0.0.1}"
+    environment:
+      - WAHA_API_KEY=${WAHA_API_KEY:-}
+      - WHATSAPP_DEFAULT_ENGINE=${WAHA_DEFAULT_ENGINE:-GOWS}
+    volumes:
+      - waha_sessions:/app/.sessions
+
   poller:
     build: ./poller
     restart: unless-stopped
@@ -135,6 +149,10 @@ services:
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:-secret}
       - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE:-default}
       - EVOLUTION_FALLBACK_INSTANCE=${EVOLUTION_FALLBACK_INSTANCE:-}
+      - WAHA_URL=${WAHA_URL:-http://waha:3000}
+      - WAHA_API_KEY=${WAHA_API_KEY:-}
+      - WAHA_SESSION=${WAHA_SESSION:-default}
+      - WAHA_TARGETS=${WAHA_TARGETS:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - POLLER_DATABASE_URL=${POLLER_DATABASE_URL:-postgresql://${APP_DB_USER:-${EVOLUTION_DB_USER:-postgres}}:${APP_DB_PASSWORD:-${EVOLUTION_DB_PASSWORD:-postgres}}@app-db:5432/${APP_DB_NAME:-${EVOLUTION_DB_NAME:-evolution}}}
       - OUTBOX_POLL_INTERVAL_MS=${OUTBOX_POLL_INTERVAL_MS:-1000}
@@ -154,6 +172,7 @@ services:
       - poller_state:/app/data
     depends_on:
       - evolution-api
+      - waha
       - app-db
 
   telegram-bot:
@@ -176,5 +195,6 @@ volumes:
   evolution_db:
   evolution_redis:
   evolution_instances:
+  waha_sessions:
   poller_state:
   telegram_bot_state:

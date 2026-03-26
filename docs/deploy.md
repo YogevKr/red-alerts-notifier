@@ -153,6 +153,10 @@ Important env vars (see `.env.example` for full list):
 - `COMPOSE_PROJECT_NAME` — Docker compose project name; prod uses `red-alerts-notifier`
 - `EVOLUTION_INSTANCE` — Evolution API instance name
 - `EVOLUTION_FALLBACK_INSTANCE` — fallback instance (optional)
+- `WAHA_URL` — optional WAHA sidecar base URL (for example `http://waha:3000`)
+- `WAHA_API_KEY` — optional WAHA API key
+- `WAHA_SESSION` — WAHA session name used for WAHA-routed targets
+- `WAHA_TARGETS` — optional comma-separated WhatsApp targets that should route through WAHA instead of Evolution
 - `POLLER_DATABASE_URL` — PostgreSQL connection string
 - `WHATSAPP_TARGETS` — comma-separated destination list; supports WhatsApp numbers, WhatsApp groups, and `telegram:<chat_id>`
 - `WHATSAPP_NUMBER` — sender WhatsApp number
@@ -168,7 +172,7 @@ Important env vars (see `.env.example` for full list):
 
 ## Notes
 
-- Poller and Evolution ports are bound to `127.0.0.1` by default.
+- Poller, Evolution, and WAHA ports are bound to `127.0.0.1` by default.
 - Named Docker volumes preserve WhatsApp session, database, and Redis state across rebuilds.
 - Do not run `docker compose down -v` unless you intentionally want to wipe state.
 - If you want delivery enabled after a fresh restart, keep `.env` and runtime aligned with `DELIVERY_ENABLED=true`.

@@ -198,6 +198,7 @@ export function appendRecentSentEntry(
     receivedAt: entry.receivedAt ? String(entry.receivedAt) : null,
     deliveryMode: String(entry.deliveryMode || ""),
     transport: String(entry.transport || ""),
+    provider: String(entry.provider || ""),
     providerMessageId: entry.providerMessageId ?? null,
     instanceName: String(entry.instanceName || ""),
     usedFallback: Boolean(entry.usedFallback),
