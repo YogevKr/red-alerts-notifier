@@ -17,6 +17,7 @@ export function createPollRuntime({
     seededSourceAlerts: 0,
   }),
   ingestAlerts = async () => [],
+  pruneSourceEventLedger = async () => 0,
   toIsoString,
   syncPagerDutyHealth,
   summarizeSourceResults,
@@ -161,6 +162,14 @@ export function createPollRuntime({
       await ingestAlerts(alerts, {
         summary: pollSummary,
       });
+
+      try {
+        await pruneSourceEventLedger({ nowMs: now });
+      } catch (err) {
+        logger.warn?.("source_event_ledger_prune_failed", {
+          error: err,
+        });
+      }
 
       monitor.consecutivePollErrors = 0;
       monitor.lastPollSuccessAt = toIsoString(now);

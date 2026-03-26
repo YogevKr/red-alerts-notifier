@@ -246,4 +246,52 @@ describe("createPollRuntime", () => {
     assert.equal(monitor.sourceFailures.tzevaadom.lastError, "websocket disconnected");
     assert.match(monitor.sourceFailures.tzevaadom.lastFailureAt, /^2026-/);
   });
+
+  it("treats source-event pruning as non-fatal maintenance", async () => {
+    const warnings = [];
+    const pruneCalls = [];
+    const monitor = {
+      sourceFailures: {},
+      consecutivePollErrors: 0,
+      lastPollSuccessAt: null,
+      lastPollError: null,
+    };
+    const runtime = createPollRuntime({
+      logger: {
+        info() {},
+        error() {
+          assert.fail("poll should not fail on prune errors");
+        },
+        warn(event, fields) {
+          warnings.push({ event, fields });
+        },
+      },
+      monitor,
+      suppressionReporter: { flushDue() {} },
+      sourceConfigs: [],
+      collectRealtimeSourceResults: async () => ({}),
+      sourceTimeoutMs: 5000,
+      fetchSourceSnapshot: async () => ({ alerts: [], rawRecords: [] }),
+      sortAlertsByDate: (alerts) => alerts,
+      captureEntriesBySource() {},
+      debugCaptureStores: {},
+      seedAlerts: async () => ({ seededDeliveries: 0, seededSourceAlerts: 0 }),
+      ingestAlerts: async () => [],
+      pruneSourceEventLedger: async ({ nowMs }) => {
+        pruneCalls.push(nowMs);
+        throw new Error("delete failed");
+      },
+      toIsoString: (ts = Date.now()) => new Date(ts).toISOString(),
+      syncPagerDutyHealth: async () => {},
+      summarizeSourceResults: (results) => results,
+    });
+
+    await runtime.poll();
+
+    assert.equal(pruneCalls.length, 1);
+    assert.equal(monitor.consecutivePollErrors, 0);
+    assert.match(monitor.lastPollSuccessAt, /^2026-/);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].event, "source_event_ledger_prune_failed");
+  });
 });

@@ -133,10 +133,36 @@ create index if not exists source_events_source_observed_idx
 on ${SOURCE_EVENT_LEDGER_TABLE} (source, observed_at desc, id desc);
 `;
 
+const UPSERT_LOOKUP_INDEX_NAME = "source_events_upsert_lookup_idx";
+const UPSERT_LOOKUP_INDEX_COLUMNS =
+  "(source_key, outcome, observed_at desc, id desc)";
+const LEGACY_UPSERT_LOOKUP_INDEX_COLUMNS =
+  "(source, source_key, outcome, observed_at desc, id desc)";
+
 const CREATE_UPSERT_LOOKUP_INDEX_SQL = `
-create index if not exists source_events_upsert_lookup_idx
-on ${SOURCE_EVENT_LEDGER_TABLE} (source_key, outcome, observed_at desc, id desc);
+create index if not exists ${UPSERT_LOOKUP_INDEX_NAME}
+on ${SOURCE_EVENT_LEDGER_TABLE} ${UPSERT_LOOKUP_INDEX_COLUMNS};
 `;
+
+const LOOKUP_UPSERT_LOOKUP_INDEX_SQL = `
+select indexdef
+from pg_indexes
+where schemaname = $1
+  and tablename = $2
+  and indexname = $3
+`;
+
+const DROP_UPSERT_LOOKUP_INDEX_SQL = `
+drop index if exists ${NOTIFICATION_OUTBOX_SCHEMA}.${UPSERT_LOOKUP_INDEX_NAME};
+`;
+
+const DELETE_EXPIRED_SOURCE_EVENTS_SQL = `
+delete from ${SOURCE_EVENT_LEDGER_TABLE}
+where observed_at < now() - ($1::integer * interval '1 hour');
+`;
+
+const DEFAULT_SOURCE_EVENT_RETENTION_HOURS = 24;
+const DEFAULT_SOURCE_EVENT_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
 export const LIST_RECENT_SOURCE_EVENTS_SQL = `
 with deduped as (
@@ -238,6 +264,42 @@ function normalizeJsonObject(value) {
   );
 }
 
+function normalizeSqlText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function usesExpectedUpsertLookupIndex(indexDefinition) {
+  const normalized = normalizeSqlText(indexDefinition);
+  return normalized.includes(normalizeSqlText(UPSERT_LOOKUP_INDEX_COLUMNS))
+    && !normalized.includes(normalizeSqlText(LEGACY_UPSERT_LOOKUP_INDEX_COLUMNS));
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function ensureUpsertLookupIndex(db) {
+  const rows = await queryRows(db, LOOKUP_UPSERT_LOOKUP_INDEX_SQL, [
+    NOTIFICATION_OUTBOX_SCHEMA,
+    SOURCE_EVENT_LEDGER_BASENAME,
+    UPSERT_LOOKUP_INDEX_NAME,
+  ]);
+
+  if (rows.some((row) => usesExpectedUpsertLookupIndex(row.indexdef))) {
+    return;
+  }
+
+  if (rows.length > 0) {
+    await db.query(DROP_UPSERT_LOOKUP_INDEX_SQL);
+  }
+
+  await db.query(CREATE_UPSERT_LOOKUP_INDEX_SQL);
+}
+
 export async function ensureSourceEventLedgerSchema(db) {
   await db.query(`create schema if not exists ${NOTIFICATION_OUTBOX_SCHEMA}`);
   await db.query(CREATE_SOURCE_EVENT_TABLE_SQL);
@@ -245,12 +307,27 @@ export async function ensureSourceEventLedgerSchema(db) {
   await db.query(CREATE_OBSERVED_AT_INDEX_SQL);
   await db.query(CREATE_SEMANTIC_KEY_INDEX_SQL);
   await db.query(CREATE_SOURCE_OBSERVED_INDEX_SQL);
-  await db.query(CREATE_UPSERT_LOOKUP_INDEX_SQL);
+  await ensureUpsertLookupIndex(db);
 }
 
 export class PostgresSourceEventLedger {
-  constructor({ pool }) {
+  constructor({
+    pool,
+    retentionHours = DEFAULT_SOURCE_EVENT_RETENTION_HOURS,
+    pruneIntervalMs = DEFAULT_SOURCE_EVENT_PRUNE_INTERVAL_MS,
+    now = () => Date.now(),
+  }) {
     this.pool = pool;
+    this.retentionHours = parsePositiveInteger(
+      retentionHours,
+      DEFAULT_SOURCE_EVENT_RETENTION_HOURS,
+    );
+    this.pruneIntervalMs = parsePositiveInteger(
+      pruneIntervalMs,
+      DEFAULT_SOURCE_EVENT_PRUNE_INTERVAL_MS,
+    );
+    this.now = now;
+    this.lastPrunedAtMs = null;
   }
 
   async ensureSchema() {
@@ -299,5 +376,26 @@ export class PostgresSourceEventLedger {
       raw_locations: normalizeLocations(row.raw_locations),
       matched_locations: normalizeLocations(row.matched_locations),
     }));
+  }
+
+  async prune({
+    force = false,
+    nowMs = this.now(),
+  } = {}) {
+    const normalizedNowMs = Number.isFinite(nowMs) ? nowMs : this.now();
+    if (
+      !force
+      && Number.isFinite(this.lastPrunedAtMs)
+      && normalizedNowMs - this.lastPrunedAtMs < this.pruneIntervalMs
+    ) {
+      return 0;
+    }
+
+    const result = await this.pool.query(DELETE_EXPIRED_SOURCE_EVENTS_SQL, [
+      this.retentionHours,
+    ]);
+
+    this.lastPrunedAtMs = normalizedNowMs;
+    return result.rowCount ?? 0;
   }
 }

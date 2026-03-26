@@ -5,6 +5,7 @@ import {
   INSERT_SOURCE_EVENT_SQL,
   LIST_RECENT_SOURCE_EVENTS_SQL,
   PostgresSourceEventLedger,
+  SOURCE_EVENT_LEDGER_BASENAME,
   SOURCE_EVENT_LEDGER_TABLE,
 } from "./source-event-ledger.js";
 import { NOTIFICATION_OUTBOX_SCHEMA } from "./outbox-schema.js";
@@ -13,38 +14,70 @@ describe("ensureSourceEventLedgerSchema", () => {
   it("creates the source event ledger table and indexes", async () => {
     const queries = [];
     const db = {
-      async query(text) {
-        queries.push(text);
+      async query(text, values) {
+        queries.push({ text, values });
         return { rows: [] };
       },
     };
 
     await ensureSourceEventLedgerSchema(db);
 
-    assert.equal(queries.length, 7);
-    assert.match(queries[0], new RegExp(`create schema if not exists ${NOTIFICATION_OUTBOX_SCHEMA}`, "i"));
-    assert.match(queries[1], new RegExp(`create table if not exists ${SOURCE_EVENT_LEDGER_TABLE.replace(".", "\\.")}`, "i"));
-    assert.match(queries[1], /observed_at timestamptz not null/i);
-    assert.match(queries[1], /source_received_at timestamptz/i);
-    assert.match(queries[1], /source_event_at timestamptz/i);
-    assert.match(queries[1], /source_message_id text/i);
-    assert.match(queries[1], /source_message_type text/i);
-    assert.match(queries[1], /category text/i);
-    assert.match(queries[1], /source_meta jsonb not null default '\{\}'::jsonb/i);
-    assert.match(queries[1], /raw_locations jsonb not null default '\[\]'::jsonb/i);
-    assert.match(queries[1], /matched_locations jsonb not null default '\[\]'::jsonb/i);
-    assert.match(queries[1], /observation_count integer not null default 1/i);
-    assert.match(queries[2], /add column if not exists source_event_at timestamptz/i);
-    assert.match(queries[2], /add column if not exists source_message_id text/i);
-    assert.match(queries[2], /add column if not exists source_message_type text/i);
-    assert.match(queries[2], /add column if not exists category text/i);
-    assert.match(queries[2], /add column if not exists source_meta jsonb not null default '\{\}'::jsonb/i);
-    assert.match(queries[2], /add column if not exists raw_locations jsonb not null default '\[\]'::jsonb/i);
-    assert.match(queries[2], /add column if not exists observation_count integer not null default 1/i);
-    assert.match(queries[3], /create index if not exists source_events_observed_at_idx/i);
-    assert.match(queries[4], /create index if not exists source_events_semantic_key_idx/i);
-    assert.match(queries[5], /create index if not exists source_events_source_observed_idx/i);
-    assert.match(queries[6], /create index if not exists source_events_upsert_lookup_idx/i);
+    assert.equal(queries.length, 8);
+    assert.match(queries[0].text, new RegExp(`create schema if not exists ${NOTIFICATION_OUTBOX_SCHEMA}`, "i"));
+    assert.match(queries[1].text, new RegExp(`create table if not exists ${SOURCE_EVENT_LEDGER_TABLE.replace(".", "\\.")}`, "i"));
+    assert.match(queries[1].text, /observed_at timestamptz not null/i);
+    assert.match(queries[1].text, /source_received_at timestamptz/i);
+    assert.match(queries[1].text, /source_event_at timestamptz/i);
+    assert.match(queries[1].text, /source_message_id text/i);
+    assert.match(queries[1].text, /source_message_type text/i);
+    assert.match(queries[1].text, /category text/i);
+    assert.match(queries[1].text, /source_meta jsonb not null default '\{\}'::jsonb/i);
+    assert.match(queries[1].text, /raw_locations jsonb not null default '\[\]'::jsonb/i);
+    assert.match(queries[1].text, /matched_locations jsonb not null default '\[\]'::jsonb/i);
+    assert.match(queries[1].text, /observation_count integer not null default 1/i);
+    assert.match(queries[2].text, /add column if not exists source_event_at timestamptz/i);
+    assert.match(queries[2].text, /add column if not exists source_message_id text/i);
+    assert.match(queries[2].text, /add column if not exists source_message_type text/i);
+    assert.match(queries[2].text, /add column if not exists category text/i);
+    assert.match(queries[2].text, /add column if not exists source_meta jsonb not null default '\{\}'::jsonb/i);
+    assert.match(queries[2].text, /add column if not exists raw_locations jsonb not null default '\[\]'::jsonb/i);
+    assert.match(queries[2].text, /add column if not exists observation_count integer not null default 1/i);
+    assert.match(queries[3].text, /create index if not exists source_events_observed_at_idx/i);
+    assert.match(queries[4].text, /create index if not exists source_events_semantic_key_idx/i);
+    assert.match(queries[5].text, /create index if not exists source_events_source_observed_idx/i);
+    assert.match(queries[6].text, /from pg_indexes/i);
+    assert.deepEqual(queries[6].values, [
+      NOTIFICATION_OUTBOX_SCHEMA,
+      SOURCE_EVENT_LEDGER_BASENAME,
+      "source_events_upsert_lookup_idx",
+    ]);
+    assert.match(queries[7].text, /create index if not exists source_events_upsert_lookup_idx/i);
+  });
+
+  it("drops and recreates the upsert lookup index when the existing definition is outdated", async () => {
+    const queries = [];
+    const db = {
+      async query(text, values) {
+        queries.push({ text, values });
+        if (/from pg_indexes/i.test(text)) {
+          return {
+            rows: [{
+              indexdef: `
+                create index source_events_upsert_lookup_idx
+                on ${SOURCE_EVENT_LEDGER_TABLE} (source, source_key, outcome, observed_at desc, id desc)
+              `,
+            }],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+
+    await ensureSourceEventLedgerSchema(db);
+
+    assert.equal(queries.length, 9);
+    assert.match(queries[7].text, new RegExp(`drop index if exists ${NOTIFICATION_OUTBOX_SCHEMA}\\.source_events_upsert_lookup_idx`, "i"));
+    assert.match(queries[8].text, /create index if not exists source_events_upsert_lookup_idx/i);
   });
 });
 
@@ -171,5 +204,29 @@ describe("PostgresSourceEventLedger", () => {
         observation_count: 8,
       },
     ]);
+  });
+
+  it("prunes expired source events on a bounded interval", async () => {
+    const calls = [];
+    const ledger = new PostgresSourceEventLedger({
+      pool: {
+        async query(text, values) {
+          calls.push({ text, values });
+          return { rows: [], rowCount: 7 };
+        },
+      },
+      now: () => 3_600_000,
+    });
+
+    const firstDeletedCount = await ledger.prune();
+    const secondDeletedCount = await ledger.prune({ nowMs: 3_601_000 });
+    const thirdDeletedCount = await ledger.prune({ nowMs: 7_201_000 });
+
+    assert.equal(firstDeletedCount, 7);
+    assert.equal(secondDeletedCount, 0);
+    assert.equal(thirdDeletedCount, 7);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].text, new RegExp(`delete from ${SOURCE_EVENT_LEDGER_TABLE.replace(".", "\\.")}`, "i"));
+    assert.deepEqual(calls[0].values, [24]);
   });
 });

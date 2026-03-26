@@ -360,6 +360,16 @@ export function createPollerApp(config = {}) {
     debugCaptureStores,
     seedAlerts,
     ingestAlerts,
+    pruneSourceEventLedger: async ({ nowMs } = {}) => {
+      if (!sourceEventLedger) return 0;
+      const deletedRowCount = await sourceEventLedger.prune({ nowMs });
+      if (deletedRowCount > 0) {
+        logger.info("source_event_ledger_pruned", {
+          deleted_row_count: deletedRowCount,
+        });
+      }
+      return deletedRowCount;
+    },
     toIsoString,
     syncPagerDutyHealth,
     summarizeSourceResults,
