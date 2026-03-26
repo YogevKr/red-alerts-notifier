@@ -88,6 +88,7 @@ Recommended startup settings for the full stack:
 - `ACTIVE_SOURCES=oref_mqtt,tzevaadom,oref_alerts,oref_history`
 - `DELIVERY_ENABLED=true` for normal live startup
 - `NOTIFIER_ACTIVE_TRANSPORTS=whatsapp,telegram` when both are intended
+- `DOCKER_LOG_MAX_SIZE=10m` and `DOCKER_LOG_MAX_FILE=5` keep container logs bounded
 
 ## Poller-only redeploy
 
@@ -161,6 +162,7 @@ Important env vars (see `.env.example` for full list):
 - `NOTIFIER_ACTIVE_TRANSPORTS` — `telegram`, `whatsapp`, or both
 - `ALERT_LOCATIONS` — comma-separated location names to monitor
 - `DELIVERY_ENABLED` — `true` or `false`
+- `DOCKER_LOG_MAX_SIZE` / `DOCKER_LOG_MAX_FILE` — Docker json-file rotation limits
 - `LOG_LEVEL` — `info`, `debug`, `warn`, `error`
 
 ## Notes
