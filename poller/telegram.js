@@ -386,6 +386,14 @@ export function buildTelegramStatusMessage({
   return lines.join("\n");
 }
 
+export function resolveTelegramStatusReply(result = {}) {
+  if (result?.status) {
+    return buildTelegramStatusMessage({ ...result.status, format: "html" });
+  }
+
+  return result?.telegramMessage || result?.message || "status unavailable";
+}
+
 export function formatTelegramError(err) {
   const parts = [];
   const message = String(err?.message || "").trim();

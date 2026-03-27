@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createLogger, createRepeatedEventLogger } from "./log.js";
 import {
   buildTelegramStatusMessage,
+  resolveTelegramStatusReply,
   buildTelegramConfirmationMarkup,
   buildTelegramConfirmationPrompt,
   buildTelegramSimulationMessage,
@@ -529,10 +530,7 @@ async function handleTelegramUpdate(update = {}) {
 
   if (command === "/status" || command === "/start" || command === "/help") {
     const result = await fetchPoller("/ops/status");
-    const statusMessage = result.telegramMessage
-      || (result.status ? buildTelegramStatusMessage({ ...result.status, format: "html" }) : null)
-      || result.message
-      || "status unavailable";
+    const statusMessage = resolveTelegramStatusReply(result);
     await sendTelegramMessageSafely(
       chatId,
       statusMessage,

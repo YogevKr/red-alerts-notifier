@@ -7,6 +7,7 @@ import {
   formatTelegramError,
   buildTelegramStatusFocus,
   buildTelegramStatusMessage,
+  resolveTelegramStatusReply,
   isTelegramTransientError,
   normalizeTelegramCommand,
   parseTelegramCallbackAction,
@@ -277,6 +278,38 @@ describe("buildTelegramStatusMessage", () => {
         "delivery: off",
         "sender: unknown",
         "targets: 0",
+      ].join("\n"),
+    );
+  });
+});
+
+describe("resolveTelegramStatusReply", () => {
+  it("prefers structured status over preformatted endpoint text", () => {
+    assert.equal(
+      resolveTelegramStatusReply({
+        telegramMessage: "bad passthrough",
+        message: "bad plain passthrough",
+        status: {
+          deliveryEnabled: true,
+          activeSources: ["oref_alerts"],
+          transports: ["telegram"],
+          destinations: {
+            total: 1,
+            labels: ["telegram:123456789"],
+          },
+          sender: {
+            label: "telegram-bot",
+          },
+        },
+      }),
+      [
+        "<b>focus: healthy</b>",
+        "active_sources: oref_alerts",
+        "delivery: on",
+        "sender: telegram-bot",
+        "transports: telegram",
+        "destination: telegram:123456789",
+        "telegram: ok checked_at=never",
       ].join("\n"),
     );
   });
