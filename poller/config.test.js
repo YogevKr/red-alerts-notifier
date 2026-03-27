@@ -35,6 +35,7 @@ describe("createPollerConfig", () => {
     assert.equal(config.timing.pollTickIntervalMs, 5000);
     assert.equal(config.orefMqtt.enabled, true);
     assert.equal(config.orefMqtt.rotateIntervalMs, 60000);
+    assert.equal(config.orefMqtt.topicsExplicit, true);
     assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
     assert.equal(config.orefMqtt.rawLogEnabled, true);
     assert.equal(config.tzevaadom.enabled, false);
@@ -59,6 +60,7 @@ describe("createPollerConfig", () => {
       "tzevaadom",
     ]);
     assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
+    assert.equal(config.orefMqtt.topicsExplicit, true);
   });
 
   it("keeps source event ledger off by default and allows opt-in", () => {
@@ -87,6 +89,7 @@ describe("createPollerConfig", () => {
       "all",
       "broadcast",
     ]);
+    assert.equal(config.orefMqtt.topicsExplicit, false);
     assert.equal(config.orefMqtt.rotateIntervalMs, 300000);
   });
 });

@@ -339,6 +339,7 @@ export function createOrefMqttSourceRuntime({
   enabled = false,
   reconnectDelayMs = 5000,
   rotateIntervalMs = 5 * 60 * 1000,
+  topicsExplicit = false,
   topics = OREF_MQTT_DEFAULT_TOPICS,
   credentialsPath = "",
   rawLogPath = "",
@@ -544,9 +545,11 @@ export function createOrefMqttSourceRuntime({
       const cityMap = buildOrefCityMap(cityCatalog);
       stream.setCityMap(cityMap);
       state.cityCount = cityMap.size;
-      topicsToSubscribe = buildOrefMqttSubscriptionTopics(cityCatalog, {
-        baseTopics: configuredTopics,
-      });
+      topicsToSubscribe = topicsExplicit
+        ? configuredTopics
+        : buildOrefMqttSubscriptionTopics(cityCatalog, {
+          baseTopics: configuredTopics,
+        });
       state.topicCount = topicsToSubscribe.length;
       state.cityMapLoadedAt = toIsoString();
       state.cityMapError = null;

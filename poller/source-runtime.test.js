@@ -462,4 +462,66 @@ describe("createOrefMqttSourceRuntime", () => {
     assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_topics_subscribed"));
     assert.ok(infoCalls.some((entry) => entry.event === "oref_mqtt_stream_started"));
   });
+
+  it("uses explicit configured topics without expanding to the full city catalog", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oref-mqtt-explicit-"));
+    const credentialsPath = join(dir, "creds.json");
+    let started = false;
+    let subscribedArgs = null;
+    const runtime = createOrefMqttSourceRuntime({
+      enabled: true,
+      topicsExplicit: true,
+      topics: ["5001231"],
+      rawLogEnabled: false,
+      rawLogPath: join(dir, "raw-log.json"),
+      credentialsPath,
+      createStream: () => ({
+        status: () => ({
+          connected: true,
+          queued: 0,
+          receivedCount: 0,
+          parsedCount: 0,
+          alertCount: 0,
+          parseErrorCount: 0,
+          lastConnectionError: null,
+          lastParseError: null,
+        }),
+        setAlertHandler() {},
+        start() {
+          started = true;
+        },
+        setCityMap() {},
+        setCredentials() {},
+      }),
+      fetchCityCatalog: async () => [
+        { id: "1231", label: "חיפה", areaid: "5" },
+      ],
+      validateCredentials: async () => ({ valid: true, validationStatus: "forbidden" }),
+      registerDevice: async () => {
+        throw new Error("register should not be called");
+      },
+      subscribeTopics: async (options) => {
+        subscribedArgs = options;
+      },
+      logger: { info() {}, warn() {} },
+    });
+
+    writeFileSync(credentialsPath, JSON.stringify({
+      token: "persisted-token",
+      auth: "persisted-auth",
+      androidId: "persisted-android-id",
+    }), "utf8");
+
+    await runtime.start({ timeoutMs: 4321 });
+
+    const snapshot = runtime.getRealtimeSourcesSnapshot();
+    assert.equal(started, true);
+    assert.equal(snapshot.oref_mqtt.topicCount, 1);
+    assert.deepEqual(subscribedArgs, {
+      token: "persisted-token",
+      auth: "persisted-auth",
+      topics: ["5001231"],
+      timeoutMs: 4321,
+    });
+  });
 });

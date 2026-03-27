@@ -226,6 +226,7 @@ export function createPollerConfig(env = process.env) {
       enabled: activeSourceNameSet.has(SOURCE_CHANNELS.OREF_MQTT),
       reconnectDelayMs: orefMqttReconnectDelayMs,
       rotateIntervalMs: orefMqttRotateIntervalMs,
+      topicsExplicit: configuredOrefMqttTopics.length > 0,
       topics: configuredOrefMqttTopics.length > 0
         ? configuredOrefMqttTopics
         : [...DEFAULT_OREF_MQTT_TOPICS],
