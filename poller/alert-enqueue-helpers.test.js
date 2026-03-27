@@ -25,6 +25,30 @@ describe("buildOutboxJobs", () => {
     assert.equal(jobs[1].chatId, "telegram:2");
     assert.ok(jobs[0].deliveryKey);
   });
+
+  it("stages whatsapp targets while leaving telegram immediate", () => {
+    const { jobs } = buildOutboxJobs({
+      alert: {
+        id: "alert:1",
+        source: "tzevaadom",
+        receivedAt: "2026-03-24T10:00:00.000Z",
+      },
+      matched: ["חיפה"],
+      chatIds: [
+        "group-primary@g.us",
+        "group-secondary@g.us",
+        "telegram:123456789",
+      ],
+      eventType: "active_alert",
+      sourceKey: "tzevaadom:alert:1",
+      nowMs: Date.parse("2026-03-24T10:00:01.000Z"),
+      whatsappTargetStaggerMs: 2000,
+    });
+
+    assert.equal(jobs[0].availableAt, "2026-03-24T10:00:01.000Z");
+    assert.equal(jobs[1].availableAt, "2026-03-24T10:00:03.000Z");
+    assert.equal(jobs[2].availableAt, "2026-03-24T10:00:01.000Z");
+  });
 });
 
 describe("handleUnsupportedAlert", () => {

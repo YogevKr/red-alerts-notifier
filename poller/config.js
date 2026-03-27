@@ -82,9 +82,11 @@ export function createPollerConfig(env = process.env) {
     EVOLUTION_API_KEY = "",
     EVOLUTION_INSTANCE = "default",
     EVOLUTION_FALLBACK_INSTANCE = "",
+    EVOLUTION_TIMEOUT_MS = "10000",
     WHATSAPP_TARGETS = "",
     WHATSAPP_CHAT_ID = "",
     WHATSAPP_NUMBER,
+    WHATSAPP_TARGET_STAGGER_MS = "0",
     DELIVERY_ENABLED = "true",
     DEBUG_CAPTURE_ENABLED = "false",
     DEBUG_CAPTURE_TTL_HOURS = "24",
@@ -188,6 +190,7 @@ export function createPollerConfig(env = process.env) {
     configuredNotifierTransports,
     alertSinks: {
       names: configuredAlertSinkNames,
+      whatsappTargetStaggerMs: parsePositiveIntEnv(WHATSAPP_TARGET_STAGGER_MS, 0),
     },
     sources: {
       activeNames: sourceGroups.activeNames,
@@ -199,7 +202,7 @@ export function createPollerConfig(env = process.env) {
       apiKey: EVOLUTION_API_KEY,
       instance: EVOLUTION_INSTANCE,
       fallbackInstance: String(EVOLUTION_FALLBACK_INSTANCE || "").trim(),
-      timeoutMs: 10_000,
+      timeoutMs: parsePositiveIntEnv(EVOLUTION_TIMEOUT_MS, 10_000),
     },
     timing: {
       defaultPollIntervalMs,

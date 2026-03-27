@@ -325,6 +325,7 @@ export function createPollerApp(config = {}) {
     if (sinkName === ALERT_SINK_NAMES.NOTIFICATION_OUTBOX) {
       return createNotificationOutboxAlertSink({
         notificationOutbox,
+        whatsappTargetStaggerMs: alertSinkConfig.whatsappTargetStaggerMs,
         logger,
         suppressionReporter,
         buildAlertLogFields: scopedBuildAlertLogFields,

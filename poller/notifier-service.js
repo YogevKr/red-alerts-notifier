@@ -43,6 +43,11 @@ function toIsoString(value = Date.now()) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function persistJson(filePath, value) {
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
@@ -226,7 +231,7 @@ export class WhatsAppNotifier {
     evolutionApiKey = process.env.EVOLUTION_API_KEY || "",
     evolutionInstance = process.env.EVOLUTION_INSTANCE || "default",
     evolutionFallbackInstance = process.env.EVOLUTION_FALLBACK_INSTANCE || "",
-    evolutionTimeoutMs = DEFAULT_EVOLUTION_TIMEOUT_MS,
+    evolutionTimeoutMs = parsePositiveInt(process.env.EVOLUTION_TIMEOUT_MS, DEFAULT_EVOLUTION_TIMEOUT_MS),
     stateFilePath = notifierStatePath,
     recentSentFilePath = recentSentStorePath,
     dedupeFilePath = notifierDeliveryStorePath,

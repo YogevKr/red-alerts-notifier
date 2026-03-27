@@ -153,8 +153,10 @@ Important env vars (see `.env.example` for full list):
 - `COMPOSE_PROJECT_NAME` — Docker compose project name; prod uses `red-alerts-notifier`
 - `EVOLUTION_INSTANCE` — Evolution API instance name
 - `EVOLUTION_FALLBACK_INSTANCE` — fallback instance (optional)
+- `EVOLUTION_TIMEOUT_MS` — WhatsApp send timeout for Evolution API calls
 - `POLLER_DATABASE_URL` — PostgreSQL connection string
 - `WHATSAPP_TARGETS` — comma-separated destination list; supports WhatsApp numbers, WhatsApp groups, and `telegram:<chat_id>`
+- `WHATSAPP_TARGET_STAGGER_MS` — delay applied between WhatsApp targets in listed order; first WhatsApp target stays immediate
 - `WHATSAPP_NUMBER` — sender WhatsApp number
 - `TEST_NOTIFICATION_TARGETS` — test-only targets (e.g. `telegram:123456789`). When set, `/simulate` uses these targets by default unless explicit targets are provided or `useDefaultTargets=true` is passed.
 - `TELEGRAM_BOT_TOKEN` — Telegram bot token

@@ -81,8 +81,39 @@ describe("PostgresNotificationOutbox.enqueueMany", () => {
     assert.equal(calls[3].text, INSERT_OUTBOX_JOB_SQL);
     assert.equal(calls[3].values[1], "semantic-1");
     assert.equal(calls[3].values[6]?.toISOString(), "2026-03-18T09:59:55.000Z");
+    assert.equal(calls[3].values[8]?.toISOString(), "2026-03-18T10:00:00.000Z");
+    assert.equal(calls[3].values[9]?.toISOString(), "2026-03-18T10:00:00.000Z");
     assert.equal(calls[4].text, NOTIFY_OUTBOX_READY_SQL);
     assert.equal(calls[5].text, "COMMIT");
+  });
+
+  it("persists per-target availability when jobs are staggered", async () => {
+    const { pool, calls } = createPoolWithClient(({ text }) => {
+      if (text === "BEGIN" || text === "COMMIT") return { rows: [] };
+      if (text === DELETE_EXPIRED_TERMINAL_JOB_SQL) return { rows: [] };
+      if (text === INSERT_OUTBOX_JOB_SQL) {
+        return { rows: [{ id: 19, delivery_key: "key-2", status: OUTBOX_STATUSES.PENDING }] };
+      }
+      if (text === NOTIFY_OUTBOX_READY_SQL) return { rows: [] };
+      throw new Error(`unexpected query: ${text}`);
+    });
+
+    const outbox = new PostgresNotificationOutbox({ pool, duplicateWindowMs: 120_000 });
+    const now = Date.parse("2026-03-18T10:00:00Z");
+    await outbox.enqueueMany([{
+      deliveryKey: "key-2",
+      semanticKey: "semantic-2",
+      sourceKey: "source-2",
+      source: "tzevaadom",
+      eventType: "active_alert",
+      chatId: "group-secondary@g.us",
+      sourceReceivedAt: "2026-03-18T09:59:55.000Z",
+      availableAt: "2026-03-18T10:00:02.000Z",
+      payload: { alert: { id: "2" } },
+    }], now);
+
+    assert.equal(calls[3].values[8]?.toISOString(), "2026-03-18T10:00:02.000Z");
+    assert.equal(calls[3].values[9]?.toISOString(), "2026-03-18T10:00:00.000Z");
   });
 
   it("drops expired dead-lettered jobs before inserting a fresh replacement", async () => {

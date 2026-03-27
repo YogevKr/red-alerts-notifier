@@ -1,4 +1,5 @@
 import { buildDeliveryKey, hashDeliveryKey } from "./lib.js";
+import { parseNotifierTarget } from "./notifier-target.js";
 
 export function buildOutboxJobs({
   alert,
@@ -8,30 +9,44 @@ export function buildOutboxJobs({
   semanticKey,
   sourceKey,
   nowMs = Date.now(),
+  whatsappTargetStaggerMs = 0,
 } = {}) {
   const source = alert?.source || "manual";
   const sourceReceivedAt = String(alert?.receivedAt || new Date(nowMs).toISOString()).trim()
     || new Date(nowMs).toISOString();
+  const staggerMs = Math.max(0, Number.parseInt(String(whatsappTargetStaggerMs || 0), 10) || 0);
+  let whatsappIndex = 0;
 
   return {
     source,
     sourceReceivedAt,
-    jobs: chatIds.map((chatId) => ({
-      deliveryKey: hashDeliveryKey(buildDeliveryKey(alert, matched, { chatId, eventType })),
-      semanticKey: String(semanticKey || "").trim(),
-      sourceKey,
-      source,
-      eventType,
-      chatId,
-      sourceReceivedAt,
-      payload: {
-        alert,
-        matched,
-        chatId,
-        eventType,
+    jobs: chatIds.map((chatId) => {
+      const target = parseNotifierTarget(chatId);
+      const availableAtMs = target.transport === "whatsapp"
+        ? nowMs + (whatsappIndex * staggerMs)
+        : nowMs;
+      if (target.transport === "whatsapp") {
+        whatsappIndex += 1;
+      }
+
+      return {
+        deliveryKey: hashDeliveryKey(buildDeliveryKey(alert, matched, { chatId, eventType })),
+        semanticKey: String(semanticKey || "").trim(),
+        sourceKey,
         source,
-      },
-    })),
+        eventType,
+        chatId,
+        sourceReceivedAt,
+        availableAt: new Date(availableAtMs).toISOString(),
+        payload: {
+          alert,
+          matched,
+          chatId,
+          eventType,
+          source,
+        },
+      };
+    }),
   };
 }
 

@@ -58,8 +58,8 @@ values (
   '${OUTBOX_STATUSES.PENDING}',
   false,
   $9,
-  $9,
-  $9
+  $10,
+  $10
 )
 on conflict (delivery_key) where (coalesce(is_duplicate, false) = false) do nothing
 returning id, delivery_key, status
@@ -317,6 +317,7 @@ export class PostgresNotificationOutbox {
 
         await db.query(DELETE_EXPIRED_TERMINAL_JOB_SQL, [deliveryKey, duplicateCutoff]);
 
+        const availableAt = normalizeDate(item?.availableAt) || createdAt;
         const insertedRows = await queryRows(db, INSERT_OUTBOX_JOB_SQL, [
           deliveryKey,
           String(item?.semanticKey || "").trim(),
@@ -326,6 +327,7 @@ export class PostgresNotificationOutbox {
           String(item?.chatId || "").trim(),
           normalizeDate(item?.sourceReceivedAt),
           JSON.stringify(buildJobPayload(item)),
+          availableAt,
           createdAt,
         ]);
 

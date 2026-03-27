@@ -65,6 +65,7 @@ export function createLogAlertSink({
 
 export function createNotificationOutboxAlertSink({
   notificationOutbox,
+  whatsappTargetStaggerMs = 0,
   logger = console,
   suppressionReporter = { record() {} },
   buildAlertLogFields = () => ({}),
@@ -101,6 +102,7 @@ export function createNotificationOutboxAlertSink({
         semanticKey,
         sourceKey,
         nowMs,
+        whatsappTargetStaggerMs,
       });
       const enqueueResults = await notificationOutbox.enqueueMany(jobs, nowMs);
       const targets = enqueueResults.map((result, index) => ({
@@ -169,6 +171,7 @@ export function createNotificationOutboxAlertSink({
         semanticKey,
         sourceKey,
         nowMs,
+        whatsappTargetStaggerMs,
       });
       return notificationOutbox.insertDuplicateMany(jobs, nowMs);
     },
