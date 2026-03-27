@@ -16,7 +16,7 @@ describe("createPollerConfig", () => {
       OREF_MQTT_RAW_LOG_ENABLED: "true",
       OREF_MQTT_ROTATE_MS: "60000",
       OREF_ALERTS_POLL_INTERVAL_MS: "1000",
-      OREF_HISTORY_POLL_INTERVAL_MS: "5000",
+      OREF_HISTORY_POLL_INTERVAL_MS: "20000",
       POLL_INTERVAL_MS: "2000",
       EVOLUTION_TIMEOUT_MS: "30000",
       TZEVAADOM_ENABLED: "true",
@@ -32,7 +32,7 @@ describe("createPollerConfig", () => {
     assert.deepEqual(config.sources.activeNames, ["oref_history", "oref_mqtt"]);
     assert.deepEqual(config.sources.polledNames, ["oref_history"]);
     assert.deepEqual(config.sources.realtimeNames, ["oref_mqtt"]);
-    assert.equal(config.timing.pollTickIntervalMs, 5000);
+    assert.equal(config.timing.pollTickIntervalMs, 20000);
     assert.equal(config.orefMqtt.enabled, true);
     assert.equal(config.orefMqtt.rotateIntervalMs, 60000);
     assert.equal(config.orefMqtt.topicsExplicit, true);

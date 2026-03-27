@@ -69,6 +69,71 @@ function normalizeOptionalString(value) {
   return normalized || null;
 }
 
+export function createPollScheduler({
+  poll = async () => {},
+  logger = console,
+  now = () => Date.now(),
+  staleThresholdMs = 20_000,
+} = {}) {
+  let activeRun = null;
+  let queued = false;
+  let activeStartedAtMs = null;
+  let busyLogged = false;
+  let staleWarned = false;
+
+  async function drainQueue() {
+    do {
+      queued = false;
+      busyLogged = false;
+      staleWarned = false;
+      activeStartedAtMs = now();
+      await poll();
+    } while (queued);
+  }
+
+  function schedule(trigger = "tick") {
+    if (activeRun) {
+      queued = true;
+      const startedAtMs = Number.isFinite(activeStartedAtMs) ? activeStartedAtMs : now();
+      const runningForMs = Math.max(0, now() - startedAtMs);
+      if (!busyLogged) {
+        busyLogged = true;
+        logger.debug?.("poll_skipped_busy", {
+          trigger,
+          running_for_ms: runningForMs,
+        });
+      }
+      if (!staleWarned && runningForMs >= staleThresholdMs) {
+        staleWarned = true;
+        logger.warn?.("poll_running_long", {
+          trigger,
+          running_for_ms: runningForMs,
+          stale_threshold_ms: staleThresholdMs,
+        });
+      }
+      return activeRun;
+    }
+
+    activeRun = (async () => {
+      try {
+        await drainQueue();
+      } finally {
+        activeRun = null;
+        queued = false;
+        activeStartedAtMs = null;
+        busyLogged = false;
+        staleWarned = false;
+      }
+    })();
+
+    return activeRun;
+  }
+
+  return {
+    schedule,
+  };
+}
+
 export function createPollerApp(config = {}) {
   const {
     locations = [],
@@ -435,6 +500,11 @@ export function createPollerApp(config = {}) {
     syncPagerDutyHealth,
     summarizeSourceResults,
   });
+  const pollScheduler = createPollScheduler({
+    poll,
+    logger,
+    staleThresholdMs: Math.max(20_000, timing.sourceTimeoutMs * 4),
+  });
 
   async function start() {
     const shouldManageWhatsApp = notificationOutboxEnabled
@@ -506,7 +576,9 @@ export function createPollerApp(config = {}) {
     await startRealtimeSources(realtimeSourceRuntimes, { timeoutMs: timing.sourceTimeoutMs });
     await syncPagerDutyHealth();
     logger.info("telegram_management_externalized");
-    setInterval(poll, timing.pollTickIntervalMs);
+    setInterval(() => {
+      void pollScheduler.schedule("tick");
+    }, timing.pollTickIntervalMs);
     startHttpServer({
       port: 3000,
       logger,
