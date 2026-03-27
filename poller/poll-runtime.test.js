@@ -76,6 +76,68 @@ describe("createPollRuntime", () => {
     ]);
   });
 
+  it("can poll a selected source without waiting for a slower one", async () => {
+    const fetchCalls = [];
+    const runtime = createPollRuntime({
+      logger: { info() {}, debug() {}, error() {} },
+      monitor: {
+        sourceFailures: {
+          oref_alerts: {
+            consecutiveFailures: 0,
+            lastSuccessAt: null,
+            lastFailureAt: null,
+            lastError: null,
+          },
+          oref_history: {
+            consecutiveFailures: 0,
+            lastSuccessAt: null,
+            lastFailureAt: null,
+            lastError: null,
+          },
+        },
+        consecutivePollErrors: 0,
+        lastPollSuccessAt: null,
+        lastPollError: null,
+      },
+      suppressionReporter: { flushDue() {} },
+      sourceConfigs: [
+        {
+          name: "oref_alerts",
+          url: "https://example.test/alerts",
+          normalizer: () => [],
+          rawExtractor: () => [],
+          pollIntervalMs: 1000,
+        },
+        {
+          name: "oref_history",
+          url: "https://example.test/history",
+          normalizer: () => [],
+          rawExtractor: () => [],
+          pollIntervalMs: 20000,
+        },
+      ],
+      collectRealtimeSourceResults: async () => ({}),
+      sourceTimeoutMs: 5000,
+      fetchSourceSnapshot: async (url) => {
+        fetchCalls.push(url);
+        return { alerts: [], rawRecords: [] };
+      },
+      sortAlertsByDate: (alerts) => alerts,
+      captureEntriesBySource() {},
+      debugCaptureStores: {},
+      seedAlerts: async () => ({ seededDeliveries: 0, seededSourceAlerts: 0 }),
+      ingestAlerts: async () => [],
+      toIsoString: (ts = Date.now()) => new Date(ts).toISOString(),
+      syncPagerDutyHealth: async () => {},
+      summarizeSourceResults: (results) => results,
+    });
+
+    await runtime.poll({ sourceNames: ["oref_alerts"] });
+    assert.deepEqual(fetchCalls, [
+      "https://example.test/alerts",
+    ]);
+  });
+
   it("hands polled alerts to the shared ingest pipeline and merges realtime status", async () => {
     const ingested = [];
     const monitor = {

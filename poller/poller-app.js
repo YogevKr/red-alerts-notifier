@@ -576,9 +576,22 @@ export function createPollerApp(config = {}) {
     await startRealtimeSources(realtimeSourceRuntimes, { timeoutMs: timing.sourceTimeoutMs });
     await syncPagerDutyHealth();
     logger.info("telegram_management_externalized");
-    setInterval(() => {
-      void pollScheduler.schedule("tick");
-    }, timing.pollTickIntervalMs);
+    if (sourceConfigs.length === 0) {
+      setInterval(() => {
+        void pollScheduler.schedule("tick");
+      }, timing.pollTickIntervalMs);
+    } else {
+      for (const source of sourceConfigs) {
+        const sourceScheduler = createPollScheduler({
+          poll: () => poll({ sourceNames: [source.name] }),
+          logger,
+          staleThresholdMs: Math.max(20_000, timing.sourceTimeoutMs * 4),
+        });
+        setInterval(() => {
+          void sourceScheduler.schedule("tick");
+        }, source.pollIntervalMs);
+      }
+    }
     startHttpServer({
       port: 3000,
       logger,

@@ -34,6 +34,13 @@ export function createPollRuntime({
   summarizeSourceResults,
 } = {}) {
   const sourceLastPolledAt = new Map();
+  let processingTail = Promise.resolve();
+
+  function enqueueProcessing(task) {
+    const run = processingTail.then(task, task);
+    processingTail = run.catch(() => {});
+    return run;
+  }
 
   function updateSourceFailureState(sourceResults = {}, now = Date.now()) {
     const nowIso = toIsoString(now);
@@ -94,8 +101,15 @@ export function createPollRuntime({
   async function fetchPolledAlertBatch({
     forceAllSources = false,
     nowMs = Date.now(),
+    sourceNames = null,
   } = {}) {
-    const dueSources = sourceConfigs.filter((source) =>
+    const selectedSourceNames = Array.isArray(sourceNames)
+      ? new Set(sourceNames.map((name) => String(name || "").trim()).filter(Boolean))
+      : null;
+    const candidateSources = selectedSourceNames
+      ? sourceConfigs.filter((source) => selectedSourceNames.has(source.name))
+      : sourceConfigs;
+    const dueSources = candidateSources.filter((source) =>
       shouldPollSource(source, nowMs, forceAllSources));
     for (const source of dueSources) {
       sourceLastPolledAt.set(source.name, nowMs);
@@ -124,6 +138,7 @@ export function createPollRuntime({
           },
         ]),
       ),
+      polledSourceNames: dueSources.map((source) => source.name),
     };
   }
 
@@ -135,7 +150,9 @@ export function createPollRuntime({
     return seedAlerts(await fetchPolledAlerts({ forceAllSources: true }));
   }
 
-  async function poll() {
+  async function poll({
+    sourceNames = null,
+  } = {}) {
     const now = Date.now();
     const startedAt = Date.now();
     monitor.lastPollAt = toIsoString(now);
@@ -147,51 +164,56 @@ export function createPollRuntime({
     };
 
     try {
-      const { alerts, rawRecords, sourceResults } = await fetchPolledAlertBatch();
-      const realtimeSourceResults = await collectRealtimeSourceResults();
-      const combinedSourceResults = {
-        ...sourceResults,
-        ...realtimeSourceResults,
-      };
-
-      pollSummary.raw_record_count = rawRecords.length;
-      pollSummary.polled_alert_count = alerts.length;
-      pollSummary.source_results = summarizeSourceResults(combinedSourceResults);
-      updateSourceFailureState(combinedSourceResults, now);
-
-      captureEntriesBySource(
-        debugCaptureStores,
-        rawRecords.map((entry) => ({
-          kind: "oref_raw",
-          source: entry.source,
-          matchedLocations: entry.matchedLocations,
-          payload: entry.payload,
-        })),
-        { touchDuplicates: false },
-      );
-
-      await ingestAlerts(alerts, {
-        summary: pollSummary,
+      const { alerts, rawRecords, sourceResults, polledSourceNames } = await fetchPolledAlertBatch({
+        sourceNames,
       });
+      await enqueueProcessing(async () => {
+        const realtimeSourceResults = await collectRealtimeSourceResults();
+        const combinedSourceResults = {
+          ...sourceResults,
+          ...realtimeSourceResults,
+        };
 
-      try {
-        await pruneSourceEventLedger({ nowMs: now });
-      } catch (err) {
-        logger.warn?.("source_event_ledger_prune_failed", {
-          error: err,
+        pollSummary.raw_record_count = rawRecords.length;
+        pollSummary.polled_alert_count = alerts.length;
+        pollSummary.source_results = summarizeSourceResults(combinedSourceResults);
+        updateSourceFailureState(combinedSourceResults, now);
+
+        captureEntriesBySource(
+          debugCaptureStores,
+          rawRecords.map((entry) => ({
+            kind: "oref_raw",
+            source: entry.source,
+            matchedLocations: entry.matchedLocations,
+            payload: entry.payload,
+          })),
+          { touchDuplicates: false },
+        );
+
+        await ingestAlerts(alerts, {
+          summary: pollSummary,
         });
-      }
 
-      monitor.consecutivePollErrors = 0;
-      monitor.lastPollSuccessAt = toIsoString(now);
-      monitor.lastPollError = null;
-      suppressionReporter.flushDue(Date.now());
-      const pollCompletedLevel = hasPollActivity(pollSummary) ? "info" : "debug";
-      logger[pollCompletedLevel]?.("poll_completed", {
-        duration_ms: Date.now() - startedAt,
-        ...pollSummary,
+        try {
+          await pruneSourceEventLedger({ nowMs: now });
+        } catch (err) {
+          logger.warn?.("source_event_ledger_prune_failed", {
+            error: err,
+          });
+        }
+
+        monitor.consecutivePollErrors = 0;
+        monitor.lastPollSuccessAt = toIsoString(now);
+        monitor.lastPollError = null;
+        suppressionReporter.flushDue(Date.now());
+        const pollCompletedLevel = hasPollActivity(pollSummary) ? "info" : "debug";
+        logger[pollCompletedLevel]?.("poll_completed", {
+          duration_ms: Date.now() - startedAt,
+          polled_sources: polledSourceNames,
+          ...pollSummary,
+        });
+        await syncPagerDutyHealth(now);
       });
-      await syncPagerDutyHealth(now);
     } catch (err) {
       monitor.consecutivePollErrors += 1;
       monitor.lastPollErrorAt = toIsoString(now);
@@ -200,6 +222,7 @@ export function createPollRuntime({
       logger.error("poll_failed", {
         duration_ms: Date.now() - startedAt,
         consecutive_poll_errors: monitor.consecutivePollErrors,
+        polled_sources: Array.isArray(sourceNames) ? sourceNames : null,
         ...pollSummary,
         error: err,
       });
