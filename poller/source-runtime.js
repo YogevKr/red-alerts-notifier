@@ -8,6 +8,7 @@ import {
 } from "./source-registry.js";
 import {
   buildOrefCityMap,
+  buildOrefMqttBrokerUrl,
   buildOrefMqttSubscriptionTopics,
   fetchOrefCityCatalog,
   fetchOrefCityMap,
@@ -155,6 +156,75 @@ function createRealtimeStreamLogger(source, logger = console) {
         "warn",
       );
     },
+  };
+}
+
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+}
+
+function maxIsoTimestamp(...values) {
+  return values
+    .map((value) => toIsoOrNull(value))
+    .filter(Boolean)
+    .sort()
+    .at(-1) || null;
+}
+
+function sumListenerMetric(listenerStatuses = [], key) {
+  return listenerStatuses.reduce(
+    (sum, status) => sum + Number(status?.[key] || 0),
+    0,
+  );
+}
+
+function buildListenerSnapshot(status = {}, index = 0) {
+  return {
+    id: `listener-${index + 1}`,
+    connected: Boolean(status?.connected),
+    brokerUrl: status?.brokerUrl || null,
+    lastTopic: status?.lastTopic || null,
+    receivedCount: Number(status?.receivedCount || 0),
+    parsedCount: Number(status?.parsedCount || 0),
+    alertCount: Number(status?.alertCount || 0),
+    parseErrorCount: Number(status?.parseErrorCount || 0),
+    queued: Number(status?.queued || 0),
+    lastMessageAt: status?.lastMessageAt || null,
+    lastParsedAt: status?.lastParsedAt || null,
+    lastAlertAt: status?.lastAlertAt || null,
+    lastParseErrorAt: status?.lastParseErrorAt || null,
+    lastParseError: status?.lastParseError || null,
+    lastConnectionErrorAt: status?.lastConnectionErrorAt || null,
+    lastConnectionError: status?.lastConnectionError || null,
+  };
+}
+
+function summarizeListenerStatuses(listenerStatuses = []) {
+  const listeners = listenerStatuses.map(buildListenerSnapshot);
+  const connectedListener = listeners.find((listener) => listener.connected) || null;
+  const lastErroredListener = [...listeners]
+    .reverse()
+    .find((listener) => listener.lastConnectionError || listener.lastParseError) || null;
+
+  return {
+    connected: listeners.some((listener) => listener.connected),
+    queued: sumListenerMetric(listeners, "queued"),
+    receivedCount: sumListenerMetric(listeners, "receivedCount"),
+    parsedCount: sumListenerMetric(listeners, "parsedCount"),
+    alertCount: sumListenerMetric(listeners, "alertCount"),
+    parseErrorCount: sumListenerMetric(listeners, "parseErrorCount"),
+    lastMessageAt: maxIsoTimestamp(...listeners.map((listener) => listener.lastMessageAt)),
+    lastParsedAt: maxIsoTimestamp(...listeners.map((listener) => listener.lastParsedAt)),
+    lastAlertAt: maxIsoTimestamp(...listeners.map((listener) => listener.lastAlertAt)),
+    lastParseErrorAt: maxIsoTimestamp(...listeners.map((listener) => listener.lastParseErrorAt)),
+    lastParseError: lastErroredListener?.lastParseError || null,
+    lastConnectionErrorAt: maxIsoTimestamp(...listeners.map((listener) => listener.lastConnectionErrorAt)),
+    lastConnectionError: lastErroredListener?.lastConnectionError || null,
+    lastTopic: connectedListener?.lastTopic || listeners.find((listener) => listener.lastTopic)?.lastTopic || null,
+    brokerUrl: connectedListener?.brokerUrl || listeners.find((listener) => listener.brokerUrl)?.brokerUrl || null,
+    listeners,
   };
 }
 
@@ -339,6 +409,8 @@ export function createOrefMqttSourceRuntime({
   enabled = false,
   reconnectDelayMs = 5000,
   rotateIntervalMs = 5 * 60 * 1000,
+  listenerCount = 2,
+  brokerUrls = [],
   topicsExplicit = false,
   topics = OREF_MQTT_DEFAULT_TOPICS,
   credentialsPath = "",
@@ -381,57 +453,77 @@ export function createOrefMqttSourceRuntime({
     topicCount: configuredTopics.length,
     ...createRealtimeCounterState(enabled),
   };
-  const stream = enabled
-    ? createStream({
-      logger: createRealtimeStreamLogger(source, logger),
-      reconnectDelayMs,
-      rotateIntervalMs,
-      queueAlerts: false,
-      onRawMessage: (message) => {
-        captureRealtimeEntries(source, [{
-          kind: "mqtt_raw",
-          source,
-          matchedLocations: [],
-          payload: message,
-        }], {
-          rawLogStore,
-          debugCaptureStores,
-          captureEntriesBySource,
-        });
-      },
-      onParseError: (message) => {
-        captureRealtimeEntries(source, [{
-          kind: "mqtt_parse_error",
-          source,
-          matchedLocations: [],
-          payload: message,
-        }], {
-          rawLogStore,
-          debugCaptureStores,
-          captureEntriesBySource,
-        });
-      },
-      onConnectionStateChange: (status) => {
-        notifyRealtimeHealthChange({
-          source,
-          status,
-          disconnectedError: "mqtt disconnected",
-          onHealthChange,
-          toIsoString,
-          logger,
-        });
-      },
-    })
-    : null;
+  const normalizedBrokerUrls = Array.isArray(brokerUrls)
+    ? [...new Set(brokerUrls.map((url) => String(url || "").trim()).filter(Boolean))]
+    : [];
+  const resolvedListenerCount = normalizedBrokerUrls.length > 0
+    ? normalizedBrokerUrls.length
+    : Math.max(1, Number(listenerCount) || 1);
+  const streams = enabled
+    ? Array.from({ length: resolvedListenerCount }, (_, index) =>
+      createStream({
+        logger: createRealtimeStreamLogger(source, logger),
+        reconnectDelayMs,
+        rotateIntervalMs,
+        queueAlerts: false,
+        brokerUrlFactory: normalizedBrokerUrls[index]
+          ? () => normalizedBrokerUrls[index]
+          : (timestampSeconds = Math.floor(Date.now() / 1000)) =>
+            buildOrefMqttBrokerUrl(timestampSeconds + index),
+        onRawMessage: (message) => {
+          captureRealtimeEntries(source, [{
+            kind: "mqtt_raw",
+            source,
+            matchedLocations: [],
+            payload: {
+              ...message,
+              listenerId: `listener-${index + 1}`,
+            },
+          }], {
+            rawLogStore,
+            debugCaptureStores,
+            captureEntriesBySource,
+          });
+        },
+        onParseError: (message) => {
+          captureRealtimeEntries(source, [{
+            kind: "mqtt_parse_error",
+            source,
+            matchedLocations: [],
+            payload: {
+              ...message,
+              listenerId: `listener-${index + 1}`,
+            },
+          }], {
+            rawLogStore,
+            debugCaptureStores,
+            captureEntriesBySource,
+          });
+        },
+        onConnectionStateChange: () => {
+          notifyRealtimeHealthChange({
+            source,
+            status: summarizeListenerStatuses(streams.map((stream) => stream.status())),
+            disconnectedError: "mqtt disconnected",
+            onHealthChange,
+            toIsoString,
+            logger,
+          });
+        },
+      }))
+    : [];
 
   function getRealtimeSourcesSnapshot() {
-    if (!enabled || !stream) return {};
+    if (!enabled || streams.length === 0) return {};
+
+    const summary = summarizeListenerStatuses(streams.map((stream) => stream.status()));
 
     return {
       [source]: {
         enabled: true,
         reconnectDelayMs,
         rotateIntervalMs,
+        listenerCount: resolvedListenerCount,
         topicCount: state.topicCount,
         cityMapLoadedAt: state.cityMapLoadedAt,
         cityMapError: state.cityMapError,
@@ -443,17 +535,19 @@ export function createOrefMqttSourceRuntime({
         topicsSubscribedAt: state.topicsSubscribedAt,
         topicsError: state.topicsError,
         rawLog: rawLogStore.status(),
-        ...stream.status(),
+        ...summary,
       },
     };
   }
 
   async function collectRealtimeSourceResults() {
-    if (!enabled || !stream) return {};
+    if (!enabled || streams.length === 0) return {};
+
+    const summary = summarizeListenerStatuses(streams.map((stream) => stream.status()));
 
     return {
       [source]: buildRealtimeSourceResult(
-        stream.status(),
+        summary,
         state,
         "mqtt disconnected",
       ),
@@ -461,7 +555,9 @@ export function createOrefMqttSourceRuntime({
   }
 
   function setAlertHandler(onAlert) {
-    stream?.setAlertHandler(onAlert, { queueAlerts: false });
+    for (const stream of streams) {
+      stream.setAlertHandler(onAlert, { queueAlerts: false });
+    }
   }
 
   function loadCredentials() {
@@ -536,14 +632,16 @@ export function createOrefMqttSourceRuntime({
   }
 
   async function start({ timeoutMs } = {}) {
-    if (!enabled || !stream) return;
+    if (!enabled || streams.length === 0) return;
 
     let topicsToSubscribe = configuredTopics;
 
     try {
       const cityCatalog = await fetchCityCatalog({ timeoutMs });
       const cityMap = buildOrefCityMap(cityCatalog);
-      stream.setCityMap(cityMap);
+      for (const stream of streams) {
+        stream.setCityMap(cityMap);
+      }
       state.cityCount = cityMap.size;
       topicsToSubscribe = topicsExplicit
         ? configuredTopics
@@ -560,7 +658,9 @@ export function createOrefMqttSourceRuntime({
     } catch (err) {
       try {
         const cityMap = await fetchCityMap({ timeoutMs });
-        stream.setCityMap(cityMap);
+        for (const stream of streams) {
+          stream.setCityMap(cityMap);
+        }
         state.cityCount = cityMap.size;
         state.cityMapLoadedAt = toIsoString();
         state.cityMapError = null;
@@ -579,7 +679,9 @@ export function createOrefMqttSourceRuntime({
     let credentials = null;
     try {
       credentials = await resolveCredentials({ timeoutMs });
-      stream.setCredentials(credentials);
+      for (const stream of streams) {
+        stream.setCredentials(credentials);
+      }
     } catch (err) {
       state.credentialsError = err.message;
       state.credentialsUsable = false;
@@ -610,8 +712,11 @@ export function createOrefMqttSourceRuntime({
       });
     }
 
-    stream.start();
+    for (const stream of streams) {
+      stream.start();
+    }
     logger.info("oref_mqtt_stream_started", {
+      listener_count: resolvedListenerCount,
       reconnect_delay_ms: reconnectDelayMs,
       rotate_interval_ms: rotateIntervalMs,
       topics_count: topicsToSubscribe.length,

@@ -151,6 +151,12 @@ export function createHealthSnapshotBuilders({
           lastTopic: status?.lastTopic || null,
           topicsSubscribedAt: status?.topicsSubscribedAt || null,
           topicsError: status?.topicsError || null,
+          ...(Number(status?.listenerCount || 0) > 0
+            ? { listenerCount: Number(status.listenerCount) }
+            : {}),
+          ...(Array.isArray(status?.listeners) && status.listeners.length > 0
+            ? { listeners: status.listeners }
+            : {}),
         },
       ]),
     );

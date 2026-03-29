@@ -15,6 +15,7 @@ describe("createPollerConfig", () => {
       OREF_MQTT_TOPICS: "com.alert.meserhadash,alerts",
       OREF_MQTT_RAW_LOG_ENABLED: "true",
       OREF_MQTT_ROTATE_MS: "60000",
+      OREF_MQTT_LISTENER_COUNT: "3",
       OREF_ALERTS_POLL_INTERVAL_MS: "1000",
       OREF_HISTORY_POLL_INTERVAL_MS: "20000",
       POLL_INTERVAL_MS: "2000",
@@ -35,6 +36,8 @@ describe("createPollerConfig", () => {
     assert.equal(config.timing.pollTickIntervalMs, 20000);
     assert.equal(config.orefMqtt.enabled, true);
     assert.equal(config.orefMqtt.rotateIntervalMs, 60000);
+    assert.equal(config.orefMqtt.listenerCount, 3);
+    assert.deepEqual(config.orefMqtt.brokerUrls, []);
     assert.equal(config.orefMqtt.topicsExplicit, true);
     assert.deepEqual(config.orefMqtt.topics, ["com.alert.meserhadash", "alerts"]);
     assert.equal(config.orefMqtt.rawLogEnabled, true);
@@ -55,7 +58,6 @@ describe("createPollerConfig", () => {
     assert.deepEqual(config.alertSinks.names, ["notification_outbox"]);
     assert.deepEqual(config.sources.activeNames, [
       "oref_alerts",
-      "oref_history",
       "oref_mqtt",
       "tzevaadom",
     ]);
@@ -91,5 +93,22 @@ describe("createPollerConfig", () => {
     ]);
     assert.equal(config.orefMqtt.topicsExplicit, false);
     assert.equal(config.orefMqtt.rotateIntervalMs, 300000);
+    assert.equal(config.orefMqtt.listenerCount, 2);
+  });
+
+  it("prefers explicit mqtt broker urls over derived listener count", () => {
+    const config = createPollerConfig({
+      WHATSAPP_TARGETS: "telegram:1",
+      OREF_MQTT_ENABLED: "true",
+      ACTIVE_SOURCES: "oref_mqtt",
+      OREF_MQTT_LISTENER_COUNT: "5",
+      OREF_MQTT_BROKER_URLS: "mqtts://mqtt-a.ioref.io:443,mqtts://mqtt-b.ioref.io:443",
+    });
+
+    assert.equal(config.orefMqtt.listenerCount, 2);
+    assert.deepEqual(config.orefMqtt.brokerUrls, [
+      "mqtts://mqtt-a.ioref.io:443",
+      "mqtts://mqtt-b.ioref.io:443",
+    ]);
   });
 });

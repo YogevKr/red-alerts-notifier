@@ -25,7 +25,6 @@ Single stack only. No sidecar canary.
   - `oref_mqtt`
   - `tzevaadom`
   - `oref_alerts`
-  - `oref_history`
 - sender model:
   - `EVOLUTION_INSTANCE` = primary sender
   - `EVOLUTION_FALLBACK_INSTANCE` = fallback sender
@@ -85,7 +84,7 @@ Recommended startup settings for the full stack:
 
 - `COMPOSE_PROJECT_NAME=red-alerts-notifier`
 - `ALERT_SINKS=notification_outbox`
-- `ACTIVE_SOURCES=oref_mqtt,tzevaadom,oref_alerts,oref_history`
+- `ACTIVE_SOURCES=oref_mqtt,tzevaadom,oref_alerts`
 - `DELIVERY_ENABLED=true` for normal live startup
 - `NOTIFIER_ACTIVE_TRANSPORTS=whatsapp,telegram` when both are intended
 - `DOCKER_LOG_MAX_SIZE=10m` and `DOCKER_LOG_MAX_FILE=5` keep container logs bounded
@@ -127,7 +126,7 @@ Expected:
   - `delivery: on`
   - primary/fallback sender states
   - full destination list
-  - source health for `oref_alerts`, `oref_history`, `oref_mqtt`, `tzevaadom`
+  - source health for `oref_alerts`, `oref_mqtt`, `tzevaadom`
 
 ## WhatsApp pairing
 

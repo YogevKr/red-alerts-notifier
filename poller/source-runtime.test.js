@@ -330,6 +330,7 @@ describe("createOrefMqttSourceRuntime", () => {
     ];
     const runtime = createOrefMqttSourceRuntime({
       enabled: true,
+      listenerCount: 1,
       rawLogEnabled: false,
       rawLogPath: "/tmp/oref-mqtt-source-runtime-test.json",
       credentialsPath: "/tmp/oref-mqtt-credentials-runtime-test.json",
@@ -376,10 +377,11 @@ describe("createOrefMqttSourceRuntime", () => {
     const dir = mkdtempSync(join(tmpdir(), "oref-mqtt-runtime-"));
     const credentialsPath = join(dir, "creds.json");
     const infoCalls = [];
-    let setCityMapArg = null;
-    let setCredentialsArg = null;
-    let started = false;
+    const setCityMapArgs = [];
+    const setCredentialsArgs = [];
+    let startedCount = 0;
     let subscribedArgs = null;
+    const createdStreams = [];
     const runtime = createOrefMqttSourceRuntime({
       enabled: true,
       topics: ["com.alert.meserhadash"],
@@ -387,9 +389,12 @@ describe("createOrefMqttSourceRuntime", () => {
       rawLogEnabled: false,
       rawLogPath: join(dir, "raw-log.json"),
       credentialsPath,
-      createStream: () => ({
+      createStream: (options) => {
+        createdStreams.push(options);
+        return {
         status: () => ({
           connected: true,
+          brokerUrl: options.brokerUrlFactory(),
           queued: 0,
           receivedCount: 0,
           parsedCount: 0,
@@ -400,15 +405,16 @@ describe("createOrefMqttSourceRuntime", () => {
         }),
         setAlertHandler() {},
         start() {
-          started = true;
+          startedCount += 1;
         },
         setCityMap(cityMap) {
-          setCityMapArg = cityMap;
+          setCityMapArgs.push(cityMap);
         },
         setCredentials(credentials) {
-          setCredentialsArg = credentials;
+          setCredentialsArgs.push(credentials);
         },
-      }),
+        };
+      },
       fetchCityCatalog: async () => [
         { id: "1405", label: "תל אביב - יפו | גוש דן", areaid: "7" },
       ],
@@ -436,14 +442,23 @@ describe("createOrefMqttSourceRuntime", () => {
     await runtime.start({ timeoutMs: 4321 });
 
     const snapshot = runtime.getRealtimeSourcesSnapshot();
-    assert.equal(started, true);
-    assert.ok(setCityMapArg instanceof Map);
-    assert.deepEqual(setCredentialsArg, {
-      token: "persisted-token",
-      auth: "persisted-auth",
-      androidId: "persisted-android-id",
-    });
+    assert.equal(startedCount, 2);
+    assert.equal(createdStreams.length, 2);
+    assert.ok(setCityMapArgs.every((value) => value instanceof Map));
+    assert.deepEqual(setCredentialsArgs, [
+      {
+        token: "persisted-token",
+        auth: "persisted-auth",
+        androidId: "persisted-android-id",
+      },
+      {
+        token: "persisted-token",
+        auth: "persisted-auth",
+        androidId: "persisted-android-id",
+      },
+    ]);
     assert.equal(snapshot.oref_mqtt.cityCount, 1);
+    assert.equal(snapshot.oref_mqtt.listenerCount, 2);
     assert.equal(snapshot.oref_mqtt.topicCount, 4);
     assert.equal("topics" in snapshot.oref_mqtt, false);
     assert.equal(snapshot.oref_mqtt.credentialsValidationStatus, "forbidden");
@@ -452,6 +467,9 @@ describe("createOrefMqttSourceRuntime", () => {
     assert.equal(snapshot.oref_mqtt.credentialsError, null);
     assert.ok(snapshot.oref_mqtt.credentialsLoadedAt);
     assert.ok(snapshot.oref_mqtt.topicsSubscribedAt);
+    assert.equal(snapshot.oref_mqtt.listeners.length, 2);
+    assert.ok(snapshot.oref_mqtt.listeners.every((listener) => listener.brokerUrl.startsWith("mqtts://mqtt-")));
+    assert.notEqual(snapshot.oref_mqtt.listeners[0].brokerUrl, snapshot.oref_mqtt.listeners[1].brokerUrl);
     assert.deepEqual(subscribedArgs, {
       token: "persisted-token",
       auth: "persisted-auth",
@@ -523,5 +541,64 @@ describe("createOrefMqttSourceRuntime", () => {
       topics: ["5001231"],
       timeoutMs: 4321,
     });
+  });
+
+  it("uses explicit broker urls for parallel mqtt listeners", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "oref-mqtt-brokers-"));
+    const credentialsPath = join(dir, "creds.json");
+    const brokerUrls = [];
+    const runtime = createOrefMqttSourceRuntime({
+      enabled: true,
+      brokerUrls: [
+        "mqtts://mqtt-a.ioref.io:443",
+        "mqtts://mqtt-b.ioref.io:443",
+      ],
+      rawLogEnabled: false,
+      rawLogPath: join(dir, "raw-log.json"),
+      credentialsPath,
+      createStream: (options) => {
+        brokerUrls.push(options.brokerUrlFactory());
+        return {
+          status: () => ({
+            connected: false,
+            brokerUrl: options.brokerUrlFactory(),
+            queued: 0,
+            receivedCount: 0,
+            parsedCount: 0,
+            alertCount: 0,
+            parseErrorCount: 0,
+            lastConnectionError: "mqtt disconnected",
+            lastParseError: null,
+          }),
+          setAlertHandler() {},
+          start() {},
+          setCityMap() {},
+          setCredentials() {},
+        };
+      },
+      fetchCityMap: async () => new Map(),
+      validateCredentials: async () => ({ valid: true, validationStatus: "forbidden" }),
+      registerDevice: async () => {
+        throw new Error("register should not be called");
+      },
+      subscribeTopics: async () => {},
+      logger: { info() {}, warn() {} },
+    });
+
+    writeFileSync(credentialsPath, JSON.stringify({
+      token: "persisted-token",
+      auth: "persisted-auth",
+    }), "utf8");
+
+    await runtime.start({ timeoutMs: 4321 });
+
+    assert.deepEqual(brokerUrls, [
+      "mqtts://mqtt-a.ioref.io:443",
+      "mqtts://mqtt-b.ioref.io:443",
+    ]);
+    assert.deepEqual(runtime.getRealtimeSourcesSnapshot().oref_mqtt.listeners.map((listener) => listener.brokerUrl), [
+      "mqtts://mqtt-a.ioref.io:443",
+      "mqtts://mqtt-b.ioref.io:443",
+    ]);
   });
 });

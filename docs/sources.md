@@ -11,8 +11,9 @@ The poller ingests multiple alert channels. OREF MQTT is the primary realtime so
 Runtime behavior:
 
 - active sources are selected by `ACTIVE_SOURCES` as a comma-separated list
-- the default source set is `oref_mqtt,tzevaadom,oref_alerts,oref_history`
+- the default source set is `oref_mqtt,tzevaadom,oref_alerts`
 - `oref_mqtt` is the main realtime source and subscribes only to `com.alert.meserhadash`
+- `oref_mqtt` runs two listeners by default for broker redundancy; set `OREF_MQTT_BROKER_URLS` to pin explicit brokers
 - `tzevaadom` is a long-lived WebSocket with automatic reconnect and acts as a secondary realtime path
 - `oref_alerts` is polled every `OREF_ALERTS_POLL_INTERVAL_MS` when set, otherwise `POLL_INTERVAL_MS`
 - `oref_history` is polled every `OREF_HISTORY_POLL_INTERVAL_MS` when set, otherwise `POLL_INTERVAL_MS`
@@ -22,8 +23,9 @@ Runtime behavior:
 
 Operational notes:
 
-- `ACTIVE_SOURCES` can enable multiple sources at once, for example `oref_mqtt,tzevaadom,oref_alerts,oref_history`
+- `ACTIVE_SOURCES` can enable multiple sources at once, for example `oref_mqtt,tzevaadom,oref_alerts`
 - `oref_mqtt` area filtering happens from `citiesIds` in the payload after receipt
+- `OREF_MQTT_LISTENER_COUNT` controls derived parallel MQTT listeners; default `2`
 - `oref_alerts`, `oref_history`, and `history2` may still be geo-restricted outside Israel
 - `tzevaadom` and the HTTP sources provide coverage when the main MQTT path degrades
 - `/health` includes realtime counters for `oref_mqtt` and `tzevaadom`: `receivedCount`, `parsedCount`, `alertCount`, `parseErrorCount`, and last-seen timestamps
