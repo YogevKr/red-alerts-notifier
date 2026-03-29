@@ -58,6 +58,7 @@ describe("createPollerConfig", () => {
     assert.deepEqual(config.alertSinks.names, ["notification_outbox"]);
     assert.deepEqual(config.sources.activeNames, [
       "oref_alerts",
+      "oref_history",
       "oref_mqtt",
       "tzevaadom",
     ]);

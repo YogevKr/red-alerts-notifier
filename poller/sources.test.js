@@ -114,6 +114,8 @@ describe("normalizeWebsiteHistoryAlerts", () => {
           cat: "13",
           data: ["תל אביב - יפו"],
           desc: "",
+          dedupeAt: "2026-03-10T15:27:00.000Z",
+          sourceEventAt: "2026-03-10T15:27:00.000Z",
         },
       ],
     );
@@ -131,6 +133,34 @@ describe("normalizeWebsiteHistoryAlerts", () => {
           cat: "14",
           data: ["תל אביב - יפו"],
           desc: "",
+          dedupeAt: "2026-03-11T11:45:48.000Z",
+          sourceEventAt: "2026-03-11T11:45:48.000Z",
+        },
+      ],
+    );
+  });
+
+  it("canonicalizes oref_history payload timestamps for dedupe", () => {
+    assert.deepEqual(
+      normalizeWebsiteHistoryAlerts([
+        {
+          alertDate: "2026-03-10T17:27:00",
+          title: "האירוע הסתיים",
+          data: "תל אביב - יפו",
+          category: 13,
+        },
+      ]),
+      [
+        {
+          id: "oref_history:2026-03-10 17:27:00:13:תל אביב - יפו",
+          source: SOURCE_CHANNELS.OREF_HISTORY,
+          alertDate: "2026-03-10 17:27:00",
+          title: "האירוע הסתיים",
+          cat: "13",
+          data: ["תל אביב - יפו"],
+          desc: "",
+          dedupeAt: "2026-03-10T15:27:00.000Z",
+          sourceEventAt: "2026-03-10T15:27:00.000Z",
         },
       ],
     );

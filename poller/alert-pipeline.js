@@ -42,11 +42,34 @@ export function createAlertPipeline({
     return parseEventDate(alert.alertDate).toISOString();
   }
 
+  function resolveEventTimestampMs(alert = {}) {
+    if (alert?.dedupeAt) {
+      const dedupeAtMs = parseEventDate(alert.dedupeAt).getTime();
+      if (Number.isFinite(dedupeAtMs)) {
+        return dedupeAtMs;
+      }
+    }
+
+    if (alert?.sourceEventAt) {
+      const sourceEventAtMs = parseEventDate(alert.sourceEventAt).getTime();
+      if (Number.isFinite(sourceEventAtMs)) {
+        return sourceEventAtMs;
+      }
+    }
+
+    if (alert?.alertDate) {
+      return parseEventDate(alert.alertDate).getTime();
+    }
+
+    const receivedAtMs = Date.parse(alert?.receivedAt || "");
+    return Number.isFinite(receivedAtMs) ? receivedAtMs : Date.now();
+  }
+
   function inspectAlert(alert) {
     const matched = matchLocations(alert, locations);
     const eventType = detectEventType(alert);
     const sourceKey = buildSeenSourceAlertKey(alert);
-    const eventTimestampMs = parseEventDate(alert.alertDate).getTime();
+    const eventTimestampMs = resolveEventTimestampMs(alert);
 
     return {
       alert,

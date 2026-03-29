@@ -146,7 +146,7 @@ Copy `.env.example` to `.env`. Key variables:
 | `WHATSAPP_NUMBER` | For WA | Sender phone number (paired via QR) |
 | `TELEGRAM_BOT_TOKEN` | For TG | Telegram bot token from @BotFather |
 | `TELEGRAM_ALLOWED_USER_IDS` | For TG | Comma-separated user IDs allowed to use the bot |
-| `ACTIVE_SOURCES` | No | Sources to enable (default: `oref_mqtt,tzevaadom,oref_alerts`) |
+| `ACTIVE_SOURCES` | No | Sources to enable (default: `oref_mqtt,tzevaadom,oref_alerts,oref_history`) |
 | `OREF_MQTT_LISTENER_COUNT` | No | Parallel MQTT listeners for broker redundancy (default: `2`) |
 | `OREF_MQTT_BROKER_URLS` | No | Optional comma-separated MQTT broker URLs; overrides derived listener hosts |
 | `ALERT_SINKS` | No | Alert sinks to enable: `notification_outbox`, `log`, or both |

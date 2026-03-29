@@ -22,7 +22,7 @@ export const SOURCE_REGISTRY = {
   [SOURCE_CHANNELS.OREF_HISTORY]: {
     name: SOURCE_CHANNELS.OREF_HISTORY,
     kind: "polled",
-    defaultActive: false,
+    defaultActive: true,
     monitored: true,
     url: OREF_HISTORY_URL,
     normalizer: normalizeWebsiteHistoryAlerts,

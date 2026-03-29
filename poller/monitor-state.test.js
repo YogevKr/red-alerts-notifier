@@ -20,6 +20,7 @@ describe("buildMonitoredSourceChannels", () => {
   it("defaults to polled sources when no explicit list is given", () => {
     assert.deepEqual(buildMonitoredSourceChannels({}), [
       "oref_alerts",
+      "oref_history",
     ]);
   });
 });

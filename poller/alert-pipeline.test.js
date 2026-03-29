@@ -107,6 +107,7 @@ describe("createAlertPipeline", () => {
 
   it("suppresses semantic duplicates before enqueue and records them", async () => {
     const duplicates = [];
+    const deliveredChecks = [];
     const pipeline = createAlertPipeline({
       suppressionReporter: { record() {} },
       matchLocations: () => ["תל אביב - יפו"],
@@ -124,24 +125,39 @@ describe("createAlertPipeline", () => {
       buildSemanticAlertKey: () => "semantic-key",
       isExplicitlySupportedAlert: () => true,
       isDeliverableEventType: () => true,
-      hasDeliveredKey: () => true,
+      hasDeliveredKey: (_key, eventTimestampMs) => {
+        deliveredChecks.push(eventTimestampMs);
+        return true;
+      },
       rememberDeliveredKey: () => true,
       recordDuplicateAlert: async (payload) => {
         duplicates.push(payload);
       },
       hashDeliveryKey: (value) => value,
       buildDeliveryKey: () => "delivery-key",
+      parseEventDate: (value) => {
+        if (value === "2026-03-23T12:00:30.000Z") {
+          return new Date("2026-03-23T12:00:30.000Z");
+        }
+        if (value === "2026-03-23 12:00:00") {
+          return new Date("2026-03-23T12:00:00.000Z");
+        }
+        return new Date("2026-03-23T12:00:00.000Z");
+      },
     });
 
     const result = await pipeline.ingestAlert({
       id: "1",
-      source: "oref_alerts",
+      source: "oref_history",
       alertDate: "2026-03-23 12:00:00",
+      dedupeAt: "2026-03-23T12:00:30.000Z",
+      sourceEventAt: "2026-03-23T12:00:31.000Z",
       data: ["תל אביב - יפו"],
     });
 
     assert.equal(result.reason, "duplicate");
     assert.equal(duplicates[0].semanticKey, "semantic-key");
+    assert.deepEqual(deliveredChecks, [Date.parse("2026-03-23T12:00:30.000Z")]);
   });
 
   it("records source event outcomes for location misses and enqueues", async () => {

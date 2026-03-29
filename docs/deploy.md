@@ -84,7 +84,7 @@ Recommended startup settings for the full stack:
 
 - `COMPOSE_PROJECT_NAME=red-alerts-notifier`
 - `ALERT_SINKS=notification_outbox`
-- `ACTIVE_SOURCES=oref_mqtt,tzevaadom,oref_alerts`
+- `ACTIVE_SOURCES=oref_mqtt,tzevaadom,oref_alerts,oref_history`
 - `DELIVERY_ENABLED=true` for normal live startup
 - `NOTIFIER_ACTIVE_TRANSPORTS=whatsapp,telegram` when both are intended
 - `DOCKER_LOG_MAX_SIZE=10m` and `DOCKER_LOG_MAX_FILE=5` keep container logs bounded

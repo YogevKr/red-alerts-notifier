@@ -145,6 +145,7 @@ function normalizeAlert({
   cat,
   data,
   desc = "",
+  dedupeAt = null,
   sourceEventAt = null,
   sourceMessageId = null,
   sourceMessageType = null,
@@ -158,6 +159,7 @@ function normalizeAlert({
     cat: String(cat),
     data: normalizeAreas(data),
     desc,
+    ...(dedupeAt ? { dedupeAt } : {}),
     ...(sourceEventAt ? { sourceEventAt } : {}),
     ...(sourceMessageId ? { sourceMessageId: String(sourceMessageId) } : {}),
     ...(sourceMessageType ? { sourceMessageType: String(sourceMessageType) } : {}),
@@ -178,6 +180,24 @@ function parseJsonBody(text) {
 function stableAlertId(source, alertDate, category, areaOrAreas) {
   const normalizedAreas = normalizeAreas(areaOrAreas).sort().join("|");
   return `${source}:${alertDate}:${category}:${normalizedAreas}`;
+}
+
+function normalizePayloadAlertDate(alertDate) {
+  const normalizedAlertDate = String(alertDate || "").trim();
+  if (!normalizedAlertDate) {
+    return {
+      alertDate: "",
+      dedupeAt: null,
+      sourceEventAt: null,
+    };
+  }
+
+  const parsedAlertDate = parseEventDate(normalizedAlertDate);
+  return {
+    alertDate: formatTimestamp(parsedAlertDate.getTime()),
+    dedupeAt: parsedAlertDate.toISOString(),
+    sourceEventAt: parsedAlertDate.toISOString(),
+  };
 }
 
 export function normalizeWebsiteCurrentAlerts(payload) {
@@ -228,22 +248,25 @@ export function normalizeWebsiteHistoryAlerts(payload) {
   return payload
     .map((record) => {
       const data = normalizeAreas(record?.data);
-      if (!record?.alertDate || !record?.title || !record?.category || data.length === 0) {
+      const { alertDate, dedupeAt, sourceEventAt } = normalizePayloadAlertDate(record?.alertDate);
+      if (!alertDate || !record?.title || !record?.category || data.length === 0) {
         return null;
       }
 
       return normalizeAlert({
         id: stableAlertId(
           SOURCE_CHANNELS.OREF_HISTORY,
-          record.alertDate,
+          alertDate,
           record.category,
           data,
         ),
         source: SOURCE_CHANNELS.OREF_HISTORY,
-        alertDate: record.alertDate,
+        alertDate,
         title: record.title,
         cat: record.category,
         data,
+        dedupeAt,
+        sourceEventAt,
       });
     })
     .filter(Boolean);
