@@ -9,6 +9,11 @@ function createStoresFixture({
   activeSourceNames = ["oref_alerts", "oref_mqtt"],
   listDebugCaptureEntries = () => [],
   debugCaptureStores = {},
+  maxDeliveredKeys = 10,
+  deliveredKeyTtlMs = 60_000,
+  maxSeenSourceAlerts = 10,
+  seenSourceAlertTtlMs = 60_000,
+  shouldSuppressDuplicateDelivery = () => false,
 } = {}) {
   const dirPath = mkdtempSync(join(tmpdir(), "red-alerts-runtime-stores-"));
   const paths = {
@@ -24,11 +29,11 @@ function createStoresFixture({
     deliveryEnabledEnv: "true",
     toIsoString: (value = Date.now()) => new Date(value).toISOString(),
     maxRecentSent: 10,
-    maxDeliveredKeys: 10,
-    deliveredKeyTtlMs: 60_000,
-    maxSeenSourceAlerts: 10,
-    seenSourceAlertTtlMs: 60_000,
-    shouldSuppressDuplicateDelivery: () => false,
+    maxDeliveredKeys,
+    deliveredKeyTtlMs,
+    maxSeenSourceAlerts,
+    seenSourceAlertTtlMs,
+    shouldSuppressDuplicateDelivery,
     hashDeliveryKey: (value) => String(value),
     listDebugCaptureEntries,
     debugCaptureStores,
@@ -338,5 +343,37 @@ describe("createRuntimeStores", () => {
         "tzevaadom | 2026-03-24 23:00:03 | WS message",
       ].join("\n"),
     );
+  });
+
+  it("keeps delivered dedupe keys when older events replay out of order", () => {
+    const { stores } = createStoresFixture({
+      deliveredKeyTtlMs: 24 * 60 * 60 * 1000,
+      shouldSuppressDuplicateDelivery: (lastDeliveredAt, now, duplicateWindowMs = 2 * 60 * 1000) =>
+        Number.isFinite(lastDeliveredAt) &&
+        Number.isFinite(now) &&
+        now - lastDeliveredAt < duplicateWindowMs,
+    });
+    const newerAlertAt = Date.now();
+    const olderReplayAt = newerAlertAt - 5 * 60 * 1000;
+
+    stores.rememberDeliveredKey("semantic-key", newerAlertAt);
+    stores.pruneDeliveredKeys(olderReplayAt);
+
+    assert.equal(stores.delivered.has("semantic-key"), true);
+    assert.equal(stores.hasDeliveredKey("semantic-key", newerAlertAt - 1_000), true);
+  });
+
+  it("keeps seen source keys when older events replay out of order", () => {
+    const { stores } = createStoresFixture({
+      seenSourceAlertTtlMs: 24 * 60 * 60 * 1000,
+    });
+    const newerSeenAt = Date.now();
+    const olderReplayAt = newerSeenAt - 5 * 60 * 1000;
+
+    stores.rememberSeenSourceAlertKey("oref_history:replay", newerSeenAt);
+    stores.pruneSeenSourceAlertKeys(olderReplayAt);
+
+    assert.equal(stores.seenSourceAlerts.has("oref_history:replay"), true);
+    assert.equal(stores.hasSeenSourceAlertKey("oref_history:replay", newerSeenAt), true);
   });
 });

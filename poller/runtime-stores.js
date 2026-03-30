@@ -343,12 +343,14 @@ export function createRuntimeStores({
   }
 
   function pruneDeliveredKeys(now = Date.now(), { persist = true } = {}) {
+    // Source event timestamps can replay out of order; retention must follow wall clock.
+    const pruneNow = Date.now();
     let changed = false;
     for (const [key, lastDeliveredAt] of delivered.entries()) {
       if (
         !Number.isFinite(lastDeliveredAt) ||
-        lastDeliveredAt > now + 60 * 1000 ||
-        now - lastDeliveredAt >= deliveredKeyTtlMs
+        lastDeliveredAt > pruneNow + 60 * 1000 ||
+        pruneNow - lastDeliveredAt >= deliveredKeyTtlMs
       ) {
         delivered.delete(key);
         changed = true;
@@ -390,12 +392,14 @@ export function createRuntimeStores({
   }
 
   function pruneSeenSourceAlertKeys(now = Date.now(), { persist = true } = {}) {
+    // Source event timestamps can replay out of order; retention must follow wall clock.
+    const pruneNow = Date.now();
     let changed = false;
     for (const [key, lastSeenAt] of seenSourceAlerts.entries()) {
       if (
         !Number.isFinite(lastSeenAt) ||
-        lastSeenAt > now + 60 * 1000 ||
-        now - lastSeenAt >= seenSourceAlertTtlMs
+        lastSeenAt > pruneNow + 60 * 1000 ||
+        pruneNow - lastSeenAt >= seenSourceAlertTtlMs
       ) {
         seenSourceAlerts.delete(key);
         changed = true;
