@@ -141,7 +141,7 @@ describe("createRuntimeStores", () => {
     );
   });
 
-  it("builds grouped recent flow output and latest flow summary", () => {
+  it("builds grouped recent flow output and latest flow summary", async () => {
     const { stores, paths } = createStoresFixture();
 
     stores.rememberRecentAlertFlow({
@@ -189,7 +189,7 @@ describe("createRuntimeStores", () => {
       "tzevaadom:enqueued (+0ms) -> telegram:sent (+166ms) -> oref_alerts:same_event (+4.1s)",
     );
     assert.equal(
-      stores.buildRecentFlowMessage(1),
+      await stores.buildRecentFlowMessage(1),
       [
         "recent_flow:",
         "האירוע הסתיים | תל אביב - יפו",
@@ -277,7 +277,7 @@ describe("createRuntimeStores", () => {
     );
   });
 
-  it("compresses repeated same-event confirmations in recent_flow output", () => {
+  it("compresses repeated same-event confirmations in recent_flow output", async () => {
     const { stores } = createStoresFixture();
 
     stores.rememberRecentAlertFlow({
@@ -309,12 +309,66 @@ describe("createRuntimeStores", () => {
     }
 
     assert.equal(
-      stores.buildRecentFlowMessage(1),
+      await stores.buildRecentFlowMessage(1),
       [
         "recent_flow:",
         "האירוע הסתיים | תל אביב - יפו",
         "2026-03-24 02:33:09 (+0ms) | tzevaadom | enqueued",
         "2026-03-24 02:33:10 (+1.0s) | oref_history | same_event x20",
+      ].join("\n"),
+    );
+  });
+
+  it("prefers DB source events for recent_flow so the originating source step survives", async () => {
+    const { stores, paths } = createStoresFixture({
+      activeSourceNames: ["oref_alerts", "oref_history", "oref_mqtt", "tzevaadom"],
+    });
+
+    writeFileSync(paths.recentSentStorePath, JSON.stringify([
+      {
+        deliveredAt: "2026-03-24T00:33:32.637Z",
+        eventType: "all_clear",
+        source: "tzevaadom",
+        title: "האירוע הסתיים",
+        chatId: "telegram:123456789",
+        matchedLocations: ["תל אביב - יפו"],
+        sourceEventAt: "2026-03-24T00:33:32.000Z",
+        transport: "telegram",
+        usedFallback: false,
+      },
+    ], null, 2), "utf8");
+
+    stores.setRecentSourceEventsLoader(async () => [
+      {
+        source: "tzevaadom",
+        source_event_at: "2026-03-24T00:33:32.000Z",
+        source_received_at: "2026-03-24T00:33:32.100Z",
+        title: "האירוע הסתיים",
+        event_type: "all_clear",
+        outcome: "enqueued",
+        raw_locations: ["תל אביב - יפו"],
+        matched_locations: ["תל אביב - יפו"],
+      },
+      {
+        source: "oref_alerts",
+        source_event_at: "2026-03-24T00:33:36.000Z",
+        source_received_at: "2026-03-24T00:33:36.100Z",
+        title: "האירוע הסתיים",
+        event_type: "all_clear",
+        outcome: "duplicate",
+        raw_locations: ["תל אביב - יפו"],
+        matched_locations: ["תל אביב - יפו"],
+      },
+    ]);
+
+    assert.equal(
+      await stores.buildRecentFlowMessage(1),
+      [
+        "recent_flow:",
+        "האירוע הסתיים | תל אביב - יפו",
+        "2026-03-24 02:33:32 (+0ms) | tzevaadom | enqueued",
+        "2026-03-24 02:33:32 (+537ms) | telegram | sent",
+        "2026-03-24 02:33:36 (+4.0s) | oref_alerts | same_event",
       ].join("\n"),
     );
   });

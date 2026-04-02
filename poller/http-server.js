@@ -177,7 +177,7 @@ export function startHttpServer({
 
     if (url.pathname === "/ops/recent_flow" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "3", 10);
-      writeJson(res, 200, { ok: true, message: buildRecentFlowMessage(limit) });
+      writeJson(res, 200, { ok: true, message: await buildRecentFlowMessage(limit) });
       return;
     }
 

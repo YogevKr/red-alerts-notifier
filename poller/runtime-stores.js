@@ -372,7 +372,32 @@ export function createRuntimeStores({
     });
   }
 
-  function buildRecentFlowMessage(limit = 3) {
+  async function buildRecentFlowMessage(limit = 3) {
+    const sources = (
+      Array.isArray(activeSourceNames) && activeSourceNames.length > 0
+        ? activeSourceNames
+        : Object.keys(debugCaptureStores)
+    ).filter(Boolean);
+
+    try {
+      const recentSourceEvents = await recentSourceEventsLoader(
+        sources,
+        Math.max(50, limit * 50),
+      );
+      if (Array.isArray(recentSourceEvents) && recentSourceEvents.length > 0) {
+        const message = formatRecentFlowMessage({
+          sourceEventEntries: recentSourceEvents,
+          sentEntries: loadRecentSentSnapshot(),
+          limit,
+        });
+        if (message !== "recent_flow: none") {
+          return message;
+        }
+      }
+    } catch (err) {
+      logger.warn?.(`Could not load recent flow source events: ${err.message}`);
+    }
+
     return formatRecentFlowMessage({
       activityEntries: loadRecentAlertFlowSnapshot(),
       sentEntries: loadRecentSentSnapshot(),
