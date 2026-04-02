@@ -265,6 +265,46 @@ describe("createRuntimeStores", () => {
     );
   });
 
+  it("builds recent received town output from DB rows when debug capture is empty", async () => {
+    const { stores } = createStoresFixture({
+      activeSourceNames: ["oref_alerts", "oref_history", "oref_mqtt"],
+    });
+    stores.setRecentSourceEventsLoader(async () => [
+      {
+        source: "oref_alerts",
+        alert_date: "2026-03-24 23:00:01",
+        title: "Website alert",
+        outcome: "location_miss",
+        raw_locations: ["חיפה"],
+        matched_locations: [],
+      },
+      {
+        source: "oref_history",
+        alert_date: "2026-03-24 23:00:02",
+        title: "History alert",
+        outcome: "enqueued",
+        raw_locations: ["תל אביב - יפו"],
+        matched_locations: ["תל אביב - יפו"],
+      },
+      {
+        source: "oref_mqtt",
+        source_received_at: "2026-03-24T21:00:03.000Z",
+        title: "MQTT message",
+        outcome: "enqueued",
+        raw_locations: ["תל אביב - יפו"],
+        matched_locations: ["תל אביב - יפו"],
+      },
+    ]);
+
+    assert.equal(
+      await stores.buildRecentReceivedTownMessage(2),
+      [
+        "recent_received_town: תל אביב - יפו",
+        "oref_history | 2026-03-24 23:00:02 | enqueued | History alert | תל אביב - יפו",
+      ].join("\n"),
+    );
+  });
+
   it("falls back to debug capture output per active source", async () => {
     const entries = [
       {

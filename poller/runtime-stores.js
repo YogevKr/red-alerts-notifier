@@ -71,6 +71,10 @@ function formatSourceEventSummary(entry = {}) {
   return `${entry.source} | ${when}${outcomeSuffix} | ${title}${areasSuffix}`;
 }
 
+function formatRecentReceivedTownEntry(entry = {}) {
+  return entry?.payload ? formatRawCaptureSummary(entry) : formatSourceEventSummary(entry);
+}
+
 const RECENT_RECEIVED_KIND_BY_SOURCE = {
   oref_alerts: "oref_raw",
   oref_history: "oref_raw",
@@ -234,13 +238,42 @@ export function createRuntimeStores({
     });
   }
 
-  function buildRecentReceivedTownMessage(limit = 5) {
+  async function buildRecentReceivedTownMessage(limit = 5) {
+    const sources = (
+      Array.isArray(activeSourceNames) && activeSourceNames.length > 0
+        ? activeSourceNames
+        : Object.keys(debugCaptureStores)
+    ).filter((source) => RECENT_RECEIVED_KIND_BY_SOURCE[source] === "oref_raw");
+    const sourceSet = new Set(sources);
+
+    const hasConfiguredLocation = (entry = {}) =>
+      normalizeEntryLocations(entry.matched_locations || entry.matchedLocations)
+        .some((location) => locations.includes(location));
+
+    try {
+      const recentSourceEvents = await recentSourceEventsLoader(
+        sources,
+        Math.max(50, limit * 10),
+      );
+      const recentTownSourceEvents = (Array.isArray(recentSourceEvents) ? recentSourceEvents : [])
+        .filter((entry) => sourceSet.has(String(entry?.source || "").trim()))
+        .filter((entry) => hasConfiguredLocation(entry));
+      if (recentTownSourceEvents.length > 0) {
+        return [
+          `recent_received_town: ${locations.join(", ")}`,
+          ...recentTownSourceEvents
+            .slice(0, Math.max(1, limit))
+            .map((entry) => formatRecentReceivedTownEntry(entry)),
+        ].join("\n");
+      }
+    } catch (err) {
+      logger.warn?.(`Could not load recent town source events: ${err.message}`);
+    }
+
     const recentTownEntries = listDebugCaptureEntries(debugCaptureStores, {
       limit: 500,
       kind: "oref_raw",
-    }).filter((entry) =>
-      entry.matchedLocations?.some((location) => locations.includes(location)),
-    );
+    }).filter((entry) => hasConfiguredLocation(entry));
 
     if (recentTownEntries.length === 0) {
       return `recent_received_town: none for ${locations.join(", ")}`;
@@ -250,7 +283,7 @@ export function createRuntimeStores({
       `recent_received_town: ${locations.join(", ")}`,
       ...recentTownEntries
         .slice(0, Math.max(1, limit))
-        .map((entry) => formatRawCaptureSummary(entry)),
+        .map((entry) => formatRecentReceivedTownEntry(entry)),
     ].join("\n");
   }
 
