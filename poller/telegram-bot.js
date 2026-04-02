@@ -582,6 +582,16 @@ async function handleTelegramUpdate(update = {}) {
     return;
   }
 
+  if (command === "/recent_miss") {
+    const result = await fetchPoller("/ops/recent_miss");
+    await sendTelegramMessageSafely(
+      chatId,
+      result.message || "recent_miss: none",
+      messageId ? { reply_parameters: { message_id: messageId } } : undefined,
+    );
+    return;
+  }
+
   if (command === "/simulate") {
     const result = await fetchPoller("/simulate", {
       method: "POST",

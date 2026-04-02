@@ -38,6 +38,7 @@ export function startHttpServer({
   buildRecentReceivedTownMessage,
   buildRecentFlowMessage,
   buildRecentSentMessage,
+  buildRecentMissMessage,
   setDeliveryEnabled,
   buildOpsDeliveryResponse,
   buildOpsSendPresetResponse,
@@ -183,6 +184,12 @@ export function startHttpServer({
     if (url.pathname === "/ops/recent_sent" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "5", 10);
       writeJson(res, 200, { ok: true, message: buildRecentSentMessage(limit) });
+      return;
+    }
+
+    if (url.pathname === "/ops/recent_miss" && req.method === "GET") {
+      const limit = parseInt(url.searchParams.get("limit") || "3", 10);
+      writeJson(res, 200, { ok: true, message: await buildRecentMissMessage(limit) });
       return;
     }
 

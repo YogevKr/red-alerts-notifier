@@ -4,6 +4,7 @@ import {
   appendRecentAlertFlowEntry,
   buildLatestAlertFlowSnapshot as buildLatestTimelineFlowSnapshot,
   buildRecentFlowMessage as formatRecentFlowMessage,
+  buildRecentMissMessage as formatRecentMissMessage,
   buildRecentSentMessage as formatRecentSentMessage,
   loadRecentAlertFlowEntries,
   loadRecentSentEntries,
@@ -227,6 +228,10 @@ export function createRuntimeStores({
     return loadRecentSentEntries(recentSentStorePath, logger);
   }
 
+  function loadRecentAlertFlowSnapshot() {
+    return loadRecentAlertFlowEntries(recentAlertFlowStorePath, logger);
+  }
+
   function rememberRecentAlertFlow(entry = {}) {
     appendRecentAlertFlowEntry({
       ...entry,
@@ -362,15 +367,44 @@ export function createRuntimeStores({
 
   function getLatestAlertFlowSnapshot() {
     return buildLatestTimelineFlowSnapshot({
-      activityEntries: loadRecentAlertFlowEntries(recentAlertFlowStorePath, logger),
+      activityEntries: loadRecentAlertFlowSnapshot(),
       sentEntries: loadRecentSentSnapshot(),
     });
   }
 
   function buildRecentFlowMessage(limit = 3) {
     return formatRecentFlowMessage({
-      activityEntries: loadRecentAlertFlowEntries(recentAlertFlowStorePath, logger),
+      activityEntries: loadRecentAlertFlowSnapshot(),
       sentEntries: loadRecentSentSnapshot(),
+      limit,
+    });
+  }
+
+  async function buildRecentMissMessage(limit = 3) {
+    const sources = (
+      Array.isArray(activeSourceNames) && activeSourceNames.length > 0
+        ? activeSourceNames
+        : Object.keys(debugCaptureStores)
+    ).filter(Boolean);
+
+    try {
+      const recentSourceEvents = await recentSourceEventsLoader(
+        sources,
+        Math.max(50, limit * 50),
+      );
+      const message = formatRecentMissMessage({
+        sourceEventEntries: recentSourceEvents,
+        limit,
+      });
+      if (message !== "recent_miss: none") {
+        return message;
+      }
+    } catch (err) {
+      logger.warn?.(`Could not load recent miss source events: ${err.message}`);
+    }
+
+    return formatRecentMissMessage({
+      activityEntries: loadRecentAlertFlowSnapshot(),
       limit,
     });
   }
@@ -481,6 +515,7 @@ export function createRuntimeStores({
     buildRecentReceivedMessage,
     buildRecentSentMessage,
     buildRecentFlowMessage,
+    buildRecentMissMessage,
     getLatestAlertFlowSnapshot,
     hasDeliveredKey,
     rememberDeliveredKey,

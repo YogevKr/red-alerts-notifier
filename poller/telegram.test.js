@@ -40,7 +40,7 @@ describe("telegram command metadata", () => {
   it("exposes slash commands for menu sync", () => {
     assert.deepEqual(
       TELEGRAM_COMMANDS.map((command) => command.command),
-      ["status", "recent_received", "recent_received_town", "recent_flow", "recent_sent", "simulate", "send", "mute", "unmute"],
+      ["status", "recent_received", "recent_received_town", "recent_flow", "recent_sent", "recent_miss", "simulate", "send", "mute", "unmute"],
     );
   });
 });
@@ -147,7 +147,7 @@ describe("buildTelegramStatusMessage", () => {
         lastDeliveredEventType: "all_clear",
         lastDeliveredSource: "oref_history",
         latestFlow: {
-          summary: "tzevaadom:enqueued (+0ms) -> telegram:sent (+180ms) -> oref_alerts:duplicate (+4.0s)",
+          summary: "tzevaadom:enqueued (+0ms) -> telegram:sent (+180ms) -> oref_alerts:same_event (+4.0s)",
         },
         targets: ["a", "b"],
         poll: {

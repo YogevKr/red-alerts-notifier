@@ -61,7 +61,7 @@ OREF MQTT is the main realtime source and is enabled by default. The other sourc
 3. **Deduplication** prevents the same alert from being sent twice, even from different sources
 4. **Alert sinks** receive matched alerts. The default full-stack sink is a PostgreSQL-backed notification outbox, and the lightweight poller-only sink is structured log output
 5. **Notifier worker** picks jobs from the notification outbox and delivers via WhatsApp or Telegram
-6. **Telegram bot** provides ops commands: `/status`, `/mute`, `/unmute`, `/recent_sent`
+6. **Telegram bot** provides ops commands such as `/status`, `/recent_flow`, `/recent_sent`, `/recent_miss`, `/mute`, and `/unmute`
 
 ## Quick start
 
@@ -228,8 +228,9 @@ curl http://127.0.0.1:3000/health
 
 Telegram bot commands (for allowed users):
 - `/status` — delivery state, connection health, latest alert flow
-- `/recent_sent` — last delivered notifications
-- `/recent_flow` — cross-source timing for recent alerts
+- `/recent_flow` — incident timeline for alerts that matched your configured towns, including later same-event confirmations from other sources
+- `/recent_sent` — delivered notifications aggregated by incident
+- `/recent_miss` — recent background source noise and non-matching alerts
 - `/mute` / `/unmute` — toggle delivery without stopping polling
 - `/send` — trigger a test notification
 

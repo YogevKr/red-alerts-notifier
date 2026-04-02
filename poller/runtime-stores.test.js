@@ -48,25 +48,95 @@ function createStoresFixture({
 }
 
 describe("createRuntimeStores", () => {
-  it("reloads recent sent rows from disk when formatting recent_sent", () => {
+  it("reloads recent sent rows from disk and aggregates them by incident", () => {
     const { stores, paths } = createStoresFixture();
 
-    writeFileSync(paths.recentSentStorePath, JSON.stringify([{
-      deliveredAt: "2026-03-24T00:30:09.000Z",
-      eventType: "active_alert",
-      source: "ops_api",
-      title: "ירי רקטות וטילים",
-      chatId: "telegram:123456789",
-      matchedLocations: ["תל אביב - יפו"],
-      transport: "telegram",
-      usedFallback: false,
-    }], null, 2), "utf8");
+    writeFileSync(paths.recentSentStorePath, JSON.stringify([
+      {
+        deliveredAt: "2026-03-24T00:30:09.000Z",
+        eventType: "active_alert",
+        source: "ops_api",
+        title: "ירי רקטות וטילים",
+        chatId: "telegram:123456789",
+        matchedLocations: ["תל אביב - יפו"],
+        sourceEventAt: "2026-03-24T00:30:00.000Z",
+        transport: "telegram",
+        usedFallback: false,
+      },
+      {
+        deliveredAt: "2026-03-24T00:30:10.000Z",
+        eventType: "active_alert",
+        source: "ops_api",
+        title: "ירי רקטות וטילים",
+        chatId: "120363407793362241@g.us",
+        matchedLocations: ["תל אביב - יפו"],
+        sourceEventAt: "2026-03-24T00:30:00.000Z",
+        transport: "whatsapp",
+        usedFallback: false,
+      },
+      {
+        deliveredAt: "2026-03-24T00:30:11.000Z",
+        eventType: "active_alert",
+        source: "ops_api",
+        title: "ירי רקטות וטילים",
+        chatId: "972542403528-1596443289@g.us",
+        matchedLocations: ["תל אביב - יפו"],
+        sourceEventAt: "2026-03-24T00:30:00.000Z",
+        transport: "whatsapp",
+        usedFallback: false,
+      },
+    ], null, 2), "utf8");
 
     assert.equal(
       stores.buildRecentSentMessage(1),
       [
         "recent_sent:",
-        "2026-03-24 02:30:09 | active_alert | ops_api | telegram:123456789 | ירי רקטות וטילים",
+        "2026-03-24 02:30:09 | ירי רקטות וטילים | תל אביב - יפו | ops_api",
+        "sent_to: telegram x1, whatsapp x2",
+        "targets: telegram:123456789, 120363407793362241@g.us, 972542403528-1596443289@g.us",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps nearby same-title deliveries as separate incidents when source event times differ", () => {
+    const { stores, paths } = createStoresFixture();
+
+    writeFileSync(paths.recentSentStorePath, JSON.stringify([
+      {
+        deliveredAt: "2026-03-24T00:32:09.000Z",
+        eventType: "active_alert",
+        source: "oref_mqtt",
+        title: "ירי רקטות וטילים",
+        chatId: "telegram:123456789",
+        matchedLocations: ["תל אביב - יפו"],
+        sourceEventAt: "2026-03-24T00:32:00.000Z",
+        transport: "telegram",
+        usedFallback: false,
+      },
+      {
+        deliveredAt: "2026-03-24T00:30:09.000Z",
+        eventType: "active_alert",
+        source: "oref_mqtt",
+        title: "ירי רקטות וטילים",
+        chatId: "telegram:123456789",
+        matchedLocations: ["תל אביב - יפו"],
+        sourceEventAt: "2026-03-24T00:30:00.000Z",
+        transport: "telegram",
+        usedFallback: false,
+      },
+    ], null, 2), "utf8");
+
+    assert.equal(
+      stores.buildRecentSentMessage(2),
+      [
+        "recent_sent:",
+        "2026-03-24 02:32:09 | ירי רקטות וטילים | תל אביב - יפו | oref_mqtt",
+        "sent_to: telegram x1",
+        "targets: telegram:123456789",
+        "",
+        "2026-03-24 02:30:09 | ירי רקטות וטילים | תל אביב - יפו | oref_mqtt",
+        "sent_to: telegram x1",
+        "targets: telegram:123456789",
       ].join("\n"),
     );
   });
@@ -116,7 +186,7 @@ describe("createRuntimeStores", () => {
 
     assert.equal(
       stores.getLatestAlertFlowSnapshot()?.summary,
-      "tzevaadom:enqueued (+0ms) -> telegram:sent (+166ms) -> oref_alerts:duplicate (+4.1s)",
+      "tzevaadom:enqueued (+0ms) -> telegram:sent (+166ms) -> oref_alerts:same_event (+4.1s)",
     );
     assert.equal(
       stores.buildRecentFlowMessage(1),
@@ -125,12 +195,12 @@ describe("createRuntimeStores", () => {
         "האירוע הסתיים | תל אביב - יפו",
         "2026-03-24 02:33:32 (+0ms) | tzevaadom | enqueued",
         "2026-03-24 02:33:32 (+166ms) | telegram | sent",
-        "2026-03-24 02:33:36 (+4.1s) | oref_alerts | duplicate",
+        "2026-03-24 02:33:36 (+4.1s) | oref_alerts | same_event",
       ].join("\n"),
     );
   });
 
-  it("compresses repeated latest flow steps in the status summary", () => {
+  it("ignores pure location misses in the latest flow summary", () => {
     const { stores } = createStoresFixture();
 
     for (let index = 0; index < 20; index += 1) {
@@ -148,22 +218,21 @@ describe("createRuntimeStores", () => {
       });
     }
 
-    assert.equal(
-      stores.getLatestAlertFlowSnapshot()?.summary,
-      "oref_history:location_miss (+0ms) x20",
-    );
+    assert.equal(stores.getLatestAlertFlowSnapshot(), null);
   });
 
-  it("collapses repeated same source event observations at write time", () => {
+  it("collapses repeated same source miss observations in recent_miss output", async () => {
     const { stores } = createStoresFixture();
 
     stores.rememberRecentAlertFlow({
       observedAt: "2026-03-24T00:33:10.000Z",
       receivedAt: "2026-03-24T00:33:10.000Z",
       alertDate: "2026-03-24 02:33:10",
+      sourceEventAt: "2026-03-24T00:33:10.000Z",
       source: "oref_history",
       eventType: "all_clear",
       title: "האירוע הסתיים",
+      rawLocations: ["חיפה"],
       matchedLocations: [],
       semanticKey: "flow-repeat-same",
       sourceKey: "oref_history:123",
@@ -173,9 +242,11 @@ describe("createRuntimeStores", () => {
       observedAt: "2026-03-24T00:33:15.000Z",
       receivedAt: "2026-03-24T00:33:15.000Z",
       alertDate: "2026-03-24 02:33:15",
+      sourceEventAt: "2026-03-24T00:33:15.000Z",
       source: "oref_history",
       eventType: "all_clear",
       title: "האירוע הסתיים",
+      rawLocations: ["חיפה"],
       matchedLocations: [],
       semanticKey: "flow-repeat-same",
       sourceKey: "oref_history:123",
@@ -185,9 +256,11 @@ describe("createRuntimeStores", () => {
       observedAt: "2026-03-24T00:33:20.000Z",
       receivedAt: "2026-03-24T00:33:20.000Z",
       alertDate: "2026-03-24 02:33:20",
+      sourceEventAt: "2026-03-24T00:33:20.000Z",
       source: "oref_history",
       eventType: "all_clear",
       title: "האירוע הסתיים",
+      rawLocations: ["חיפה"],
       matchedLocations: [],
       semanticKey: "flow-repeat-same",
       sourceKey: "oref_history:123",
@@ -195,17 +268,30 @@ describe("createRuntimeStores", () => {
     });
 
     assert.equal(
-      stores.buildRecentFlowMessage(1),
+      await stores.buildRecentMissMessage(1),
       [
-        "recent_flow:",
-        "האירוע הסתיים | unknown",
+        "recent_miss:",
+        "האירוע הסתיים | חיפה",
         "2026-03-24 02:33:20 (+0ms) | oref_history | location_miss x3",
       ].join("\n"),
     );
   });
 
-  it("compresses repeated recent flow steps in the command output", () => {
+  it("compresses repeated same-event confirmations in recent_flow output", () => {
     const { stores } = createStoresFixture();
+
+    stores.rememberRecentAlertFlow({
+      observedAt: "2026-03-24T00:33:09.000Z",
+      receivedAt: "2026-03-24T00:33:09.000Z",
+      alertDate: "2026-03-24 02:33:32",
+      source: "tzevaadom",
+      eventType: "all_clear",
+      title: "האירוע הסתיים",
+      matchedLocations: ["תל אביב - יפו"],
+      semanticKey: "flow-repeat",
+      sourceKey: "tzevaadom:seed",
+      outcome: "enqueued",
+    });
 
     for (let index = 0; index < 20; index += 1) {
       stores.rememberRecentAlertFlow({
@@ -218,7 +304,7 @@ describe("createRuntimeStores", () => {
         matchedLocations: ["תל אביב - יפו"],
         semanticKey: "flow-repeat",
         sourceKey: `oref_history:${index}`,
-        outcome: "location_miss",
+        outcome: "duplicate",
       });
     }
 
@@ -227,7 +313,46 @@ describe("createRuntimeStores", () => {
       [
         "recent_flow:",
         "האירוע הסתיים | תל אביב - יפו",
-        "2026-03-24 02:33:10 (+0ms) | oref_history | location_miss x20",
+        "2026-03-24 02:33:09 (+0ms) | tzevaadom | enqueued",
+        "2026-03-24 02:33:10 (+1.0s) | oref_history | same_event x20",
+      ].join("\n"),
+    );
+  });
+
+  it("builds recent miss output from DB rows", async () => {
+    const { stores } = createStoresFixture({
+      activeSourceNames: ["oref_alerts", "oref_history", "oref_mqtt", "tzevaadom"],
+    });
+    stores.setRecentSourceEventsLoader(async () => [
+      {
+        source: "oref_mqtt",
+        source_event_at: "2026-03-24T21:00:00.000Z",
+        source_received_at: "2026-03-24T21:00:00.100Z",
+        title: "ירי רקטות וטילים",
+        event_type: "active_alert",
+        outcome: "location_miss",
+        raw_locations: ["משהד", "ריינה", "עוזייר", "רומאנה"],
+        matched_locations: [],
+      },
+      {
+        source: "tzevaadom",
+        source_event_at: "2026-03-24T21:00:00.000Z",
+        source_received_at: "2026-03-24T21:00:01.100Z",
+        title: "ירי רקטות וטילים",
+        event_type: "active_alert",
+        outcome: "location_miss",
+        raw_locations: ["משהד", "ריינה", "עוזייר", "רומאנה"],
+        matched_locations: [],
+      },
+    ]);
+
+    assert.equal(
+      await stores.buildRecentMissMessage(1),
+      [
+        "recent_miss:",
+        "ירי רקטות וטילים | משהד, ריינה, עוזייר (+1)",
+        "2026-03-24 23:00:00 (+0ms) | oref_mqtt | location_miss",
+        "2026-03-24 23:00:01 (+1.0s) | tzevaadom | location_miss",
       ].join("\n"),
     );
   });
