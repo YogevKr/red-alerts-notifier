@@ -117,6 +117,7 @@ function normalizeTimelineActivityEntry(entry = {}) {
     || null;
   const stepAt =
     entry.receivedAt
+    || entry.created_at
     || entry.source_received_at
     || entry.observedAt
     || entry.observed_at

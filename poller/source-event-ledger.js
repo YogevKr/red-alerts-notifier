@@ -169,6 +169,7 @@ with deduped as (
   select distinct on (source, source_key, outcome)
     id,
     observed_at,
+    created_at,
     source_received_at,
     alert_date,
     source_event_at,
@@ -193,6 +194,7 @@ ranked as (
   select
     id,
     observed_at,
+    created_at,
     source_received_at,
     alert_date,
     source_event_at,
@@ -218,6 +220,7 @@ ranked as (
 select
   id,
   observed_at,
+  created_at,
   source_received_at,
   alert_date,
   source_event_at,
