@@ -166,7 +166,7 @@ const DEFAULT_SOURCE_EVENT_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
 export const LIST_RECENT_SOURCE_EVENTS_SQL = `
 with deduped as (
-  select distinct on (source, source_key)
+  select distinct on (source, source_key, outcome)
     id,
     observed_at,
     source_received_at,
@@ -187,7 +187,7 @@ with deduped as (
     observation_count
   from ${SOURCE_EVENT_LEDGER_TABLE}
   where source = any($1::text[])
-  order by source, source_key, observed_at desc, id desc
+  order by source, source_key, outcome, observed_at desc, id desc
 ),
 ranked as (
   select

@@ -180,7 +180,7 @@ describe("PostgresSourceEventLedger", () => {
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].text, LIST_RECENT_SOURCE_EVENTS_SQL);
-    assert.match(LIST_RECENT_SOURCE_EVENTS_SQL, /distinct on \(source, source_key\)/i);
+    assert.match(LIST_RECENT_SOURCE_EVENTS_SQL, /distinct on \(source, source_key, outcome\)/i);
     assert.deepEqual(calls[0].values, [["oref_alerts", "tzevaadom"], 3]);
     assert.deepEqual(rows, [
       {
