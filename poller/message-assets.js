@@ -15,17 +15,19 @@ export function getMessageAssetSearchDirs({
 }
 
 export function resolveMessageAsset(baseName, assetDirs = getMessageAssetSearchDirs()) {
-  for (const assetDir of assetDirs) {
-    const assetFiles = readdirSync(assetDir);
-    try {
-      const filename = resolveMediaAssetFilename(baseName, assetFiles);
-      return {
-        assetDir,
-        filename,
-        filePath: join(assetDir, filename),
-      };
-    } catch {
-      continue;
+  for (const name of [baseName, "general"]) {
+    for (const assetDir of assetDirs) {
+      const assetFiles = readdirSync(assetDir);
+      try {
+        const filename = resolveMediaAssetFilename(name, assetFiles);
+        return {
+          assetDir,
+          filename,
+          filePath: join(assetDir, filename),
+        };
+      } catch {
+        continue;
+      }
     }
   }
 

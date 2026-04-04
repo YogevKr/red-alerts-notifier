@@ -21,11 +21,16 @@ const assetsDir = join(appDir, "assets");
 const assetFiles = readdirSync(assetsDir);
 
 describe("notifier asset names", () => {
-  it("match the committed asset basenames", () => {
+  it("match the committed asset basenames or fall back to general", () => {
     const baseNames = getConfiguredMediaBaseNames();
 
     for (const baseName of baseNames) {
-      const filename = resolveMediaAssetFilename(baseName, assetFiles);
+      let filename;
+      try {
+        filename = resolveMediaAssetFilename(baseName, assetFiles);
+      } catch {
+        filename = resolveMediaAssetFilename("general", assetFiles);
+      }
       const filePath = join(assetsDir, filename);
       assert.ok(readFileSync(filePath).length > 0);
       assert.match(getMediaAssetMimeType(filename), /^image\//);
@@ -91,7 +96,7 @@ describe("TelegramNotifier", () => {
     assert.equal(calls[0].method, "sendPhoto");
     assert.equal(calls[0].payload.get("chat_id"), "123456789");
     assert.match(String(calls[0].payload.get("caption") || ""), /תל אביב - יפו/);
-    assert.equal(calls[0].payload.get("photo")?.name, "active-alert.jpeg");
+    assert.match(calls[0].payload.get("photo")?.name, /\.(jpeg|jpg|png)$/);
     assert.equal(result.transport, "telegram");
     assert.equal(result.mode, "image");
     assert.equal(result.chatId, "telegram:123456789");

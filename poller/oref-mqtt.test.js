@@ -17,11 +17,11 @@ describe("buildOrefCityMap", () => {
     assert.deepEqual(
       [...buildOrefCityMap([
         { id: "1405", label: "תל אביב - יפו | גוש דן" },
-        { id: "1234", label: "רמת ישי" },
+        { id: "1234", label: "באר שבע" },
       ]).entries()],
       [
         ["1405", "תל אביב - יפו"],
-        ["1234", "רמת ישי"],
+        ["1234", "באר שבע"],
       ],
     );
   });
@@ -51,7 +51,7 @@ describe("buildOrefMqttSubscriptionTopics", () => {
 describe("normalizeOrefMqttMessage", () => {
   const cityMap = new Map([
     ["1405", "תל אביב - יפו"],
-    ["1234", "רמת ישי"],
+    ["1234", "באר שבע"],
   ]);
 
   it("normalizes observed mqtt pre-alert payloads", () => {
@@ -258,7 +258,7 @@ describe("OrefMqttStream", () => {
       },
       cityIdToName: new Map([
         ["1405", "תל אביב - יפו"],
-        ["1234", "רמת ישי"],
+        ["1234", "באר שבע"],
       ]),
       queueAlerts: false,
       logger: { log() {}, error() {} },
@@ -282,7 +282,7 @@ describe("OrefMqttStream", () => {
     assert.equal(alerts.length, 1);
     assert.equal(alerts[0].source, "oref_mqtt");
     assert.equal(alerts[0].title, "ירי רקטות וטילים");
-    assert.deepEqual(alerts[0].data, ["תל אביב - יפו", "רמת ישי"]);
+    assert.deepEqual(alerts[0].data, ["תל אביב - יפו", "באר שבע"]);
     assert.equal(stream.status().connected, true);
     assert.equal(stream.status().alertCount, 1);
     stream.stop();
